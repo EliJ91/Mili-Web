@@ -1,0 +1,15 @@
+{
+  "name": "mili-web",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "discord:worker": "node src/discord/worker.js",
+    "lint": "node --check src/discord/readOnlyBot.js && node --check src/discord/worker.js",
+    "test": "node --test",
+    "build": "npm run lint"
+  },
+  "dependencies": {
+    "discord.js": "^14.16.3"
+  }
+}
