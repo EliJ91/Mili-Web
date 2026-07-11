@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import { createReadOnlyDiscordBot } from './readOnlyBot.js';
 
 const bot = createReadOnlyDiscordBot({
