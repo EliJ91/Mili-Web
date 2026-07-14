@@ -31,6 +31,48 @@ function requiredEnv(env, key) {
   return value;
 }
 
+function bearerToken(request) {
+  const authorization = clean(request.headers.get('authorization'));
+  const match = authorization.match(/^Bearer\s+(.+)$/i);
+  return match ? clean(match[1]) : '';
+}
+
+function formatMember(guildId, userId, member) {
+  const guildNickname = clean(member?.nick || member?.user?.global_name || member?.user?.username);
+  return {
+    discordGuildId: guildId,
+    discordUserId: userId,
+    guildNickname,
+    roleIds: Array.isArray(member?.roles) ? member.roles.map(String) : [],
+    serverNickname: guildNickname,
+  };
+}
+
+export async function handleMemberLookupRequest(request, env, dependencies = {}) {
+  if (request.method !== 'POST') return jsonResponse({ error: 'Method not allowed.' }, 405);
+  const expectedSecret = requiredEnv(env, 'WEBAPP_MEMBER_LOOKUP_SECRET');
+  if (bearerToken(request) !== expectedSecret) return jsonResponse({ error: 'Unauthorized.' }, 401);
+
+  const body = await request.json().catch(() => ({}));
+  const guildId = clean(body.guildId) || clean(env.DISCORD_GUILD_ID) || DEFAULT_GUILD_ID;
+  const userId = clean(body.userId);
+  if (guildId !== (clean(env.DISCORD_GUILD_ID) || DEFAULT_GUILD_ID)) {
+    return jsonResponse({ error: 'Guild not allowed.' }, 403);
+  }
+  if (!/^\d{15,25}$/.test(userId)) return jsonResponse({ error: 'Invalid Discord user ID.' }, 400);
+
+  const RestClass = dependencies.RestClass || REST;
+  const rest = dependencies.rest || new RestClass({ version: '10' }).setToken(requiredEnv(env, 'DISCORD_BOT_TOKEN'));
+  try {
+    const member = await rest.get(Routes.guildMember(guildId, userId));
+    return jsonResponse(formatMember(guildId, userId, member));
+  } catch (error) {
+    if (Number(error?.status) === 404) return jsonResponse({ error: 'Member not found.' }, 404);
+    console.error('[militant-discord-interactions] Member lookup failed.', error);
+    return jsonResponse({ error: 'Member lookup failed.' }, 502);
+  }
+}
+
 async function fetchThreadMessages(rest, threadId) {
   const messages = [];
   let before = '';
@@ -159,6 +201,10 @@ export async function processUploadInteraction(interaction, env, dependencies = 
 }
 
 export async function handleInteractionRequest(request, env, context, dependencies = {}) {
+  const requestUrl = new URL(request.url);
+  if (requestUrl.pathname === '/webapp/member') {
+    return handleMemberLookupRequest(request, env, dependencies);
+  }
   if (request.method === 'GET') {
     return new Response('Militant Discord interactions are online.');
   }

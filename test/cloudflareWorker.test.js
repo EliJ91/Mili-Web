@@ -7,6 +7,7 @@ import {
 } from 'discord-api-types/v10';
 import {
   handleInteractionRequest,
+  handleMemberLookupRequest,
   processUploadInteraction,
 } from '../src/cloudflare/worker.js';
 
@@ -31,6 +32,49 @@ function interaction(overrides = {}) {
 }
 
 describe('Cloudflare Discord interaction worker', () => {
+  it('returns a guild member nickname and roles to the authenticated webapp backend', async () => {
+    const rest = {
+      get: mock.fn(async () => ({
+        nick: 'Onslawht',
+        roles: ['role-1', 'role-2'],
+        user: { id: '264193431830528006', username: 'E2J' },
+      })),
+    };
+    const request = new Request('https://worker.test/webapp/member', {
+      body: JSON.stringify({ guildId: 'guild-1', userId: '264193431830528006' }),
+      headers: { Authorization: 'Bearer lookup-secret' },
+      method: 'POST',
+    });
+
+    const response = await handleMemberLookupRequest(request, {
+      ...env,
+      WEBAPP_MEMBER_LOOKUP_SECRET: 'lookup-secret',
+    }, { rest });
+
+    assert.equal(response.status, 200);
+    assert.deepEqual(await response.json(), {
+      discordGuildId: 'guild-1',
+      discordUserId: '264193431830528006',
+      guildNickname: 'Onslawht',
+      roleIds: ['role-1', 'role-2'],
+      serverNickname: 'Onslawht',
+    });
+  });
+
+  it('rejects unauthenticated member lookups', async () => {
+    const request = new Request('https://worker.test/webapp/member', {
+      body: JSON.stringify({ guildId: 'guild-1', userId: '264193431830528006' }),
+      method: 'POST',
+    });
+
+    const response = await handleMemberLookupRequest(request, {
+      ...env,
+      WEBAPP_MEMBER_LOOKUP_SECRET: 'lookup-secret',
+    });
+
+    assert.equal(response.status, 401);
+  });
+
   it('responds to Discord verification pings', async () => {
     const request = new Request('https://worker.test/', {
       body: JSON.stringify({ type: InteractionType.Ping }),
