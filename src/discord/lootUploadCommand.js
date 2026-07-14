@@ -159,13 +159,13 @@ async function submitLootLog({ bundleId, lootLogText, originalFileName, username
   return result;
 }
 
-async function recordActionLog({ actorName, bundleId, fileName, threadName }) {
+async function recordActionLog({ actorName, bundleId, fileName, threadName, uploadedBy }) {
   try {
     await supabaseRest('webapp_action_logs', {
       body: {
         action: 'Loot log uploaded from Discord',
-        actor_name: clean(actorName) || 'Discord',
-        details: { fileName, source: 'Discord thread', threadName },
+        actor_name: clean(actorName) || 'Unknown Server Member',
+        details: { fileName, source: 'Discord thread', threadName, uploadedBy },
         target_id: bundleId || null,
         target_name: clean(threadName) || clean(fileName) || null,
         target_type: 'loot-log',
@@ -214,23 +214,17 @@ export async function memberCanUploadLootLogsFromDiscord(member) {
 async function getDisplayName(message) {
   const nick = clean(message?.member?.nickname || message?.member?.nick);
   if (nick) return nick;
-  const displayName = clean(message?.member?.displayName);
-  if (displayName) return displayName;
 
   if (message?.guild?.members?.fetch && message?.author?.id) {
     try {
       const member = await message.guild.members.fetch(message.author.id);
-      return clean(member?.nickname || member?.nick)
-        || clean(member?.displayName)
-        || clean(message?.author?.globalName)
-        || clean(message?.author?.username)
-        || 'Discord';
+      return clean(member?.nickname || member?.nick) || 'Unknown Server Member';
     } catch {
-      // Fall back to author data.
+      // Action history intentionally never falls back to a Discord username.
     }
   }
 
-  return clean(message?.author?.globalName) || clean(message?.author?.username) || 'Discord';
+  return 'Unknown Server Member';
 }
 
 async function loadThreadRecord(thread) {
@@ -324,6 +318,7 @@ export async function processLootUploadCommand({
   const threadRecord = await loadThreadRecord(thread);
   const processedIds = await loadProcessedAttachmentIds(jobs.map((job) => job.attachmentId));
   const pendingJobs = jobs.filter((job) => !processedIds.has(job.attachmentId));
+  const commandActorName = await getDisplayName(message);
   let bundleId = threadRecord?.bundle_id || null;
   let processedAttachments = 0;
   let skippedAttachments = 0;
@@ -344,10 +339,11 @@ export async function processLootUploadCommand({
       await saveThreadBundle(thread, bundleId, [job.attachmentId]);
       await markAttachmentProcessed({ bundleId, job, submittedBy, thread });
       await recordActionLog({
-        actorName: submittedBy,
+        actorName: commandActorName,
         bundleId,
         fileName: job.fileName,
         threadName: clean(thread.name),
+        uploadedBy: submittedBy,
       });
       processedAttachments += 1;
     } catch (error) {

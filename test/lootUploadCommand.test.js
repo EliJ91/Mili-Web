@@ -98,12 +98,17 @@ describe('loot upload command helpers', () => {
     process.env.SUPABASE_URL = 'https://supabase.test';
     process.env.SUPABASE_SERVICE_ROLE_KEY = 'service-role';
     const lootAttachment = createAttachment('loot-1', 'loot.csv');
-    const thread = createThread([createMessage({ attachment: lootAttachment })]);
+    const attachmentMessage = createMessage({ attachment: lootAttachment });
+    attachmentMessage.member = { id: 'user-2', nickname: 'Chapper' };
+    attachmentMessage.author = { id: 'user-2', username: 'ActualDiscordUsername' };
+    attachmentMessage.guild = { members: { fetch: mock.fn(async () => ({ nickname: 'Chapper' })) } };
+    const thread = createThread([attachmentMessage]);
     const commandMessage = {
       author: { id: 'user-1' },
       channel: thread,
       content: '!upload',
-      member: { id: 'user-1', roles: { cache: new Map([['role-logger', {}]]) } },
+      guild: { members: { fetch: mock.fn(async () => ({ nickname: 'Onslawht' })) } },
+      member: { id: 'user-1', nickname: 'Onslawht', roles: { cache: new Map([['role-logger', {}]]) } },
     };
 
     const calls = [];
@@ -133,5 +138,8 @@ describe('loot upload command helpers', () => {
     assert.equal(result.processedAttachments, 1);
     assert.equal(calls.some((call) => call.url.includes('/functions/v1/loot-logs')), true);
     assert.equal(calls.find((call) => call.url.includes('/functions/v1/loot-logs')).body.originalFileName, '04 CTA Uploads');
+    const actionLog = calls.find((call) => call.url.includes('webapp_action_logs'));
+    assert.equal(actionLog.body.actor_name, 'Onslawht');
+    assert.equal(actionLog.body.details.uploadedBy, 'Chapper');
   });
 });
