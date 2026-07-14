@@ -1,5 +1,4 @@
 import {
-  ChannelType,
   Client,
   GatewayIntentBits,
   Partials,
@@ -72,7 +71,7 @@ export function serializeMessage(message) {
   };
 }
 
-export function serializeChannel(channel) {
+function serializeChannel(channel) {
   if (!channel) return null;
 
   return {
@@ -85,7 +84,7 @@ export function serializeChannel(channel) {
   };
 }
 
-export function serializeRole(role) {
+function serializeRole(role) {
   if (!role) return null;
 
   return {
@@ -98,7 +97,7 @@ export function serializeRole(role) {
   };
 }
 
-export function serializeMember(member) {
+function serializeMember(member) {
   if (!member) return null;
 
   return {
@@ -237,15 +236,3 @@ export function createReadOnlyDiscordBot({
     stop,
   };
 }
-
-export const discordReadOnlyConfig = {
-  intents: REQUIRED_INTENTS,
-  permissions: READ_ONLY_PERMISSION_BITS,
-  readableChannelTypes: [
-    ChannelType.GuildText,
-    ChannelType.GuildAnnouncement,
-    ChannelType.PublicThread,
-    ChannelType.PrivateThread,
-    ChannelType.AnnouncementThread,
-  ],
-};
