@@ -8,6 +8,7 @@ import {
 const READ_ONLY_PERMISSION_BITS = [
   PermissionsBitField.Flags.ViewChannel,
   PermissionsBitField.Flags.ReadMessageHistory,
+  PermissionsBitField.Flags.AddReactions,
 ];
 
 const REQUIRED_INTENTS = [

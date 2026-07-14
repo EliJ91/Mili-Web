@@ -1,6 +1,8 @@
 import { ChannelType } from 'discord.js';
 
 export const DEFAULT_LOOT_LOG_THREAD_CHANNEL_ID = '1492400020958351391';
+export const UPLOAD_ACCEPTED_REACTION = '✅';
+export const UPLOAD_REJECTED_REACTION = '❌';
 
 const DISCORD_UPLOAD_PERMISSION_KEY = 'uploadLootLogsFromDiscord';
 const MAX_ATTACHMENT_BYTES = 8 * 1024 * 1024;
@@ -34,6 +36,22 @@ export function isSupportedLogAttachment(attachment) {
 export function isUploadCommandMessage(message) {
   const content = clean(message?.content).toLowerCase();
   return content === '!upload' || content.startsWith('!upload ');
+}
+
+export function isAcceptedUploadCommandResult(result) {
+  return Boolean(result && !result.ignored && !result.forbidden && Number(result.skippedAttachments || 0) === 0);
+}
+
+export async function reactToUploadCommandMessage(message, accepted, logger = console) {
+  if (typeof message?.react !== 'function') return false;
+
+  try {
+    await message.react(accepted ? UPLOAD_ACCEPTED_REACTION : UPLOAD_REJECTED_REACTION);
+    return true;
+  } catch (error) {
+    logger.warn?.('[mili-discord-worker] Could not react to !upload command.', error.message || error);
+    return false;
+  }
 }
 
 function isTargetThread(thread, channelId) {
@@ -303,17 +321,17 @@ export async function processLootUploadCommand({
 } = {}) {
   const thread = message?.channel;
   if (!isUploadCommandMessage(message) || !isTargetThread(thread, channelId)) {
-    return { ignored: true, processedAttachments: 0, skippedAttachments: 0 };
+    return { accepted: false, ignored: true, processedAttachments: 0, skippedAttachments: 0 };
   }
 
   const member = await getCommandMember(message);
   if (!await memberCanUploadLootLogsFromDiscord(member)) {
-    return { forbidden: true, processedAttachments: 0, skippedAttachments: 0 };
+    return { accepted: false, forbidden: true, processedAttachments: 0, skippedAttachments: 0 };
   }
 
   const messages = await fetchThreadMessages(thread);
   const jobs = collectLogAttachmentJobs(messages);
-  if (jobs.length === 0) return { bundleId: null, processedAttachments: 0, skippedAttachments: 0 };
+  if (jobs.length === 0) return { accepted: true, bundleId: null, processedAttachments: 0, skippedAttachments: 0 };
 
   const threadRecord = await loadThreadRecord(thread);
   const processedIds = await loadProcessedAttachmentIds(jobs.map((job) => job.attachmentId));
@@ -352,5 +370,10 @@ export async function processLootUploadCommand({
     }
   }
 
-  return { bundleId, processedAttachments, skippedAttachments };
+  return {
+    accepted: skippedAttachments === 0,
+    bundleId,
+    processedAttachments,
+    skippedAttachments,
+  };
 }

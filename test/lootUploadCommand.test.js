@@ -3,11 +3,15 @@ import { afterEach, describe, it, mock } from 'node:test';
 import { ChannelType } from 'discord.js';
 import {
   DEFAULT_LOOT_LOG_THREAD_CHANNEL_ID,
+  UPLOAD_ACCEPTED_REACTION,
+  UPLOAD_REJECTED_REACTION,
   collectLogAttachmentJobs,
+  isAcceptedUploadCommandResult,
   isSupportedLogAttachment,
   isUploadCommandMessage,
   memberCanUploadLootLogsFromDiscord,
   processLootUploadCommand,
+  reactToUploadCommandMessage,
 } from '../src/discord/lootUploadCommand.js';
 
 const originalEnv = { ...process.env };
@@ -94,6 +98,31 @@ describe('loot upload command helpers', () => {
     assert.equal(allowed, true);
   });
 
+  it('maps upload command results to accepted or rejected reactions', async () => {
+    const acceptedMessage = { react: mock.fn(async () => {}) };
+    const rejectedMessage = { react: mock.fn(async () => {}) };
+
+    assert.equal(isAcceptedUploadCommandResult({ accepted: true, processedAttachments: 1, skippedAttachments: 0 }), true);
+    assert.equal(isAcceptedUploadCommandResult({ accepted: false, forbidden: true, skippedAttachments: 0 }), false);
+    assert.equal(isAcceptedUploadCommandResult({ accepted: true, processedAttachments: 0, skippedAttachments: 1 }), false);
+
+    await reactToUploadCommandMessage(acceptedMessage, true, {});
+    await reactToUploadCommandMessage(rejectedMessage, false, {});
+
+    assert.equal(acceptedMessage.react.mock.calls[0].arguments[0], UPLOAD_ACCEPTED_REACTION);
+    assert.equal(rejectedMessage.react.mock.calls[0].arguments[0], UPLOAD_REJECTED_REACTION);
+  });
+
+  it('does not fail upload processing when Discord rejects a reaction', async () => {
+    const message = { react: mock.fn(async () => { throw new Error('Missing Permissions'); }) };
+    const logger = { warn: mock.fn() };
+
+    const reacted = await reactToUploadCommandMessage(message, true, logger);
+
+    assert.equal(reacted, false);
+    assert.equal(logger.warn.mock.callCount(), 1);
+  });
+
   it('uploads csv files in a permitted thread after !upload', async () => {
     process.env.SUPABASE_URL = 'https://supabase.test';
     process.env.SUPABASE_SERVICE_ROLE_KEY = 'service-role';
@@ -136,6 +165,7 @@ describe('loot upload command helpers', () => {
     const result = await processLootUploadCommand({ message: commandMessage });
 
     assert.equal(result.processedAttachments, 1);
+    assert.equal(result.accepted, true);
     assert.equal(calls.some((call) => call.url.includes('/functions/v1/loot-logs')), true);
     assert.equal(calls.find((call) => call.url.includes('/functions/v1/loot-logs')).body.originalFileName, '04 CTA Uploads');
     const actionLog = calls.find((call) => call.url.includes('webapp_action_logs'));

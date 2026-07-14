@@ -1,8 +1,8 @@
 # Mili Web
 
-Mili Web is a small read-only Discord bot for Militant web tooling.
+Mili Web is a small Discord bot for Militant web tooling.
 
-The bot reads Discord server data needed by the webapp, such as guild/member information, without modifying Discord content. It also watches for the manual `!upload` command in configured loot-log threads and uploads attached loot `.csv` files to the webapp database.
+The bot reads Discord server data needed by the webapp, such as guild/member information. It also watches for the manual `!upload` command in configured loot-log threads, reacts with a status emoji, and uploads attached loot `.csv` files to the webapp database.
 
 ## Permissions
 
@@ -10,6 +10,7 @@ Use the minimum Discord permissions needed:
 
 - View Channels
 - Read Message History
+- Add Reactions
 
 Enable these privileged gateway intents in the Discord Developer Portal:
 
