@@ -25,8 +25,12 @@ function fileExtension(fileName) {
   return dotIndex >= 0 ? name.slice(dotIndex) : '';
 }
 
+function attachmentFileName(attachment) {
+  return clean(attachment?.name || attachment?.filename);
+}
+
 export function isSupportedLogAttachment(attachment) {
-  return SUPPORTED_ATTACHMENT_EXTENSIONS.has(fileExtension(attachment?.name));
+  return SUPPORTED_ATTACHMENT_EXTENSIONS.has(fileExtension(attachmentFileName(attachment)));
 }
 
 function isTargetThread(thread, channelId) {
@@ -56,7 +60,7 @@ export function collectLogAttachmentJobs(messages) {
       .map((attachment) => ({
         attachment,
         attachmentId: clean(attachment?.id),
-        fileName: clean(attachment?.name),
+        fileName: attachmentFileName(attachment),
         message,
         messageId: clean(message?.id),
         timestamp: messageTimestamp(message),
@@ -71,18 +75,19 @@ export function collectLogAttachmentJobs(messages) {
 
 async function fetchAttachmentText(attachment) {
   const url = clean(attachment?.url || attachment?.proxyURL);
+  const fileName = attachmentFileName(attachment) || 'Attachment';
   if (!url) throw new Error('Attachment URL is missing.');
 
   const response = await fetch(url);
   if (!response.ok) {
-    throw new Error(`Could not download ${attachment.name || 'attachment'} (${response.status}).`);
+    throw new Error(`Could not download ${fileName} (${response.status}).`);
   }
 
   const size = Number(response.headers.get('content-length')) || 0;
-  if (size > MAX_ATTACHMENT_BYTES) throw new Error(`${attachment.name || 'Attachment'} is too large.`);
+  if (size > MAX_ATTACHMENT_BYTES) throw new Error(`${fileName} is too large.`);
 
   const buffer = await response.arrayBuffer();
-  if (buffer.byteLength > MAX_ATTACHMENT_BYTES) throw new Error(`${attachment.name || 'Attachment'} is too large.`);
+  if (buffer.byteLength > MAX_ATTACHMENT_BYTES) throw new Error(`${fileName} is too large.`);
 
   return new TextDecoder().decode(buffer);
 }

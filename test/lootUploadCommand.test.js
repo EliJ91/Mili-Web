@@ -61,6 +61,7 @@ function mockJsonResponse(data, ok = true) {
 describe('loot upload command helpers', () => {
   it('recognizes only csv attachments', () => {
     assert.equal(isSupportedLogAttachment(createAttachment('1', 'loot.csv')), true);
+    assert.equal(isSupportedLogAttachment({ filename: 'discord-rest-loot.csv', id: 'rest-1' }), true);
     assert.equal(isSupportedLogAttachment(createAttachment('2', 'chest.txt')), false);
   });
 
@@ -68,6 +69,20 @@ describe('loot upload command helpers', () => {
     const older = createMessage({ attachment: createAttachment('old', 'old.csv'), id: 'message-1', timestamp: 100 });
     const newer = createMessage({ attachment: createAttachment('new', 'new.csv'), id: 'message-2', timestamp: 200 });
     assert.deepEqual(collectLogAttachmentJobs([newer, older]).map((job) => job.attachmentId), ['old', 'new']);
+  });
+
+  it('collects Discord REST attachments that use filename instead of name', () => {
+    const message = createMessage({ id: 'rest-message', timestamp: 300 });
+    message.attachments = [{
+      filename: 'log-2026-07-14-03-13-48utc.csv',
+      id: 'rest-attachment',
+      url: 'https://cdn.discordapp.test/rest-attachment/file.csv',
+    }];
+
+    const jobs = collectLogAttachmentJobs([message]);
+
+    assert.equal(jobs.length, 1);
+    assert.equal(jobs[0].fileName, 'log-2026-07-14-03-13-48utc.csv');
   });
 
   it('checks the Discord upload permission against configured role ids', async () => {
