@@ -1,7 +1,23 @@
 import 'dotenv/config';
+import { processLootUploadCommand } from './lootUploadCommand.js';
 import { createReadOnlyDiscordBot } from './readOnlyBot.js';
 
 const bot = createReadOnlyDiscordBot({
+  async onMessageCreate(message) {
+    try {
+      const result = await processLootUploadCommand({ message });
+      if (result.processedAttachments > 0) {
+        console.log(JSON.stringify({
+          observedAt: new Date().toISOString(),
+          processedAttachments: result.processedAttachments,
+          threadId: message.channel?.id || '',
+          type: 'lootUploadCommand',
+        }));
+      }
+    } catch (error) {
+      console.error('Failed to process Discord loot upload command.', error);
+    }
+  },
   onEvent(event) {
     console.log(JSON.stringify({
       observedAt: new Date().toISOString(),

@@ -134,6 +134,7 @@ export function getReadOnlyPermissionBitfield() {
 export function createReadOnlyDiscordBot({
   client = null,
   logger = console,
+  onMessageCreate = () => {},
   onEvent = () => {},
   token = process.env.DISCORD_BOT_TOKEN,
 } = {}) {
@@ -152,6 +153,7 @@ export function createReadOnlyDiscordBot({
 
   discordClient.on?.('messageCreate', (message) => {
     emit('messageCreate', serializeMessage(message));
+    void onMessageCreate(message);
   });
 
   discordClient.on?.('messageUpdate', (oldMessage, newMessage) => {

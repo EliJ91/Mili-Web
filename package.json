@@ -1,11 +1,11 @@
 {
   "name": "mili-web",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "private": true,
   "type": "module",
   "scripts": {
     "discord:worker": "node src/discord/worker.js",
-    "lint": "node --check src/discord/readOnlyBot.js && node --check src/discord/worker.js",
+    "lint": "node --check src/discord/readOnlyBot.js && node --check src/discord/lootUploadCommand.js && node --check src/discord/worker.js",
     "test": "node --test",
     "build": "npm run lint"
   },
