@@ -252,15 +252,6 @@ async function loadThreadRecord(thread) {
   return rows?.[0] || null;
 }
 
-async function loadProcessedAttachmentIds(attachmentIds) {
-  if (attachmentIds.length === 0) return new Set();
-  const encodedIds = attachmentIds.map((id) => `"${String(id).replace(/"/g, '\\"')}"`).join(',');
-  const rows = await supabaseRest(
-    `discord_loot_attachments?attachment_id=in.(${encodedIds})&select=attachment_id`,
-  );
-  return new Set((rows || []).map((row) => clean(row.attachment_id)));
-}
-
 async function saveThreadBundle(thread, bundleId, processedAttachmentIds = []) {
   const bundleRows = await supabaseRest(
     `loot_log_bundles?id=eq.${encodeURIComponent(bundleId)}&select=combined_loot_summary`,
@@ -334,14 +325,12 @@ export async function processLootUploadCommand({
   if (jobs.length === 0) return { accepted: true, bundleId: null, processedAttachments: 0, skippedAttachments: 0 };
 
   const threadRecord = await loadThreadRecord(thread);
-  const processedIds = await loadProcessedAttachmentIds(jobs.map((job) => job.attachmentId));
-  const pendingJobs = jobs.filter((job) => !processedIds.has(job.attachmentId));
   const commandActorName = await getDisplayName(message);
   let bundleId = threadRecord?.bundle_id || null;
   let processedAttachments = 0;
   let skippedAttachments = 0;
 
-  for (const job of pendingJobs) {
+  for (const job of jobs) {
     try {
       const lootLogText = await fetchAttachmentTextFn(job.attachment);
       const submittedBy = await getDisplayName(job.message);
