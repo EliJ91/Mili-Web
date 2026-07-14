@@ -1,8 +1,8 @@
 import { ChannelType } from 'discord.js';
 
 export const DEFAULT_LOOT_LOG_THREAD_CHANNEL_ID = '1492400020958351391';
-export const UPLOAD_ACCEPTED_REACTION = '✅';
-export const UPLOAD_REJECTED_REACTION = '❌';
+export const UPLOAD_ACCEPTED_REACTION = '\u2705';
+export const UPLOAD_REJECTED_REACTION = '\u274C';
 
 const DISCORD_UPLOAD_PERMISSION_KEY = 'uploadLootLogsFromDiscord';
 const MAX_ATTACHMENT_BYTES = 8 * 1024 * 1024;
