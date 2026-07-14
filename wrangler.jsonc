@@ -1,0 +1,16 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "militant-discord-interactions",
+  "main": "src/cloudflare/worker.js",
+  "compatibility_date": "2026-07-14",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": true,
+  "vars": {
+    "DISCORD_APPLICATION_ID": "1525606439500910682",
+    "DISCORD_GUILD_ID": "805908199541702666",
+    "DISCORD_LOOT_LOG_CHANNEL_ID": "1492400020958351391"
+  },
+  "observability": {
+    "enabled": true
+  }
+}

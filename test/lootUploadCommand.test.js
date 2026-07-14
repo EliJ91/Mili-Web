@@ -3,15 +3,10 @@ import { afterEach, describe, it, mock } from 'node:test';
 import { ChannelType } from 'discord.js';
 import {
   DEFAULT_LOOT_LOG_THREAD_CHANNEL_ID,
-  UPLOAD_ACCEPTED_REACTION,
-  UPLOAD_REJECTED_REACTION,
   collectLogAttachmentJobs,
-  isAcceptedUploadCommandResult,
   isSupportedLogAttachment,
-  isUploadCommandMessage,
   memberCanUploadLootLogsFromDiscord,
-  processLootUploadCommand,
-  reactToUploadCommandMessage,
+  processLootUploadThread,
 } from '../src/discord/lootUploadCommand.js';
 
 const originalEnv = { ...process.env };
@@ -64,11 +59,9 @@ function mockJsonResponse(data, ok = true) {
 }
 
 describe('loot upload command helpers', () => {
-  it('recognizes only csv attachments and the upload command', () => {
+  it('recognizes only csv attachments', () => {
     assert.equal(isSupportedLogAttachment(createAttachment('1', 'loot.csv')), true);
     assert.equal(isSupportedLogAttachment(createAttachment('2', 'chest.txt')), false);
-    assert.equal(isUploadCommandMessage({ content: '!upload' }), true);
-    assert.equal(isUploadCommandMessage({ content: 'upload' }), false);
   });
 
   it('sorts attachment jobs by message time', () => {
@@ -98,32 +91,7 @@ describe('loot upload command helpers', () => {
     assert.equal(allowed, true);
   });
 
-  it('maps upload command results to accepted or rejected reactions', async () => {
-    const acceptedMessage = { react: mock.fn(async () => {}) };
-    const rejectedMessage = { react: mock.fn(async () => {}) };
-
-    assert.equal(isAcceptedUploadCommandResult({ accepted: true, processedAttachments: 1, skippedAttachments: 0 }), true);
-    assert.equal(isAcceptedUploadCommandResult({ accepted: false, forbidden: true, skippedAttachments: 0 }), false);
-    assert.equal(isAcceptedUploadCommandResult({ accepted: true, processedAttachments: 0, skippedAttachments: 1 }), false);
-
-    await reactToUploadCommandMessage(acceptedMessage, true, {});
-    await reactToUploadCommandMessage(rejectedMessage, false, {});
-
-    assert.equal(acceptedMessage.react.mock.calls[0].arguments[0], UPLOAD_ACCEPTED_REACTION);
-    assert.equal(rejectedMessage.react.mock.calls[0].arguments[0], UPLOAD_REJECTED_REACTION);
-  });
-
-  it('does not fail upload processing when Discord rejects a reaction', async () => {
-    const message = { react: mock.fn(async () => { throw new Error('Missing Permissions'); }) };
-    const logger = { warn: mock.fn() };
-
-    const reacted = await reactToUploadCommandMessage(message, true, logger);
-
-    assert.equal(reacted, false);
-    assert.equal(logger.warn.mock.callCount(), 1);
-  });
-
-  it('uploads csv files in a permitted thread after !upload', async () => {
+  it('uploads csv files from a permitted slash-command request', async () => {
     process.env.SUPABASE_URL = 'https://supabase.test';
     process.env.SUPABASE_SERVICE_ROLE_KEY = 'service-role';
     const lootAttachment = createAttachment('loot-1', 'loot.csv');
@@ -132,14 +100,6 @@ describe('loot upload command helpers', () => {
     attachmentMessage.author = { id: 'user-2', username: 'ActualDiscordUsername' };
     attachmentMessage.guild = { members: { fetch: mock.fn(async () => ({ nickname: 'Chapper' })) } };
     const thread = createThread([attachmentMessage]);
-    const commandMessage = {
-      author: { id: 'user-1' },
-      channel: thread,
-      content: '!upload',
-      guild: { members: { fetch: mock.fn(async () => ({ nickname: 'Onslawht' })) } },
-      member: { id: 'user-1', nickname: 'Onslawht', roles: { cache: new Map([['role-logger', {}]]) } },
-    };
-
     const calls = [];
     globalThis.fetch = mock.fn(async (url, options = {}) => {
       calls.push({ body: options.body ? JSON.parse(options.body) : null, method: options.method || 'GET', url: String(url) });
@@ -162,7 +122,15 @@ describe('loot upload command helpers', () => {
       return mockJsonResponse([{ id: 'ok' }]);
     });
 
-    const result = await processLootUploadCommand({ message: commandMessage });
+    const result = await processLootUploadThread({
+      actorMember: { id: 'user-1', roles: ['role-logger'] },
+      actorName: 'Onslawht',
+      fetchAttachmentTextFn: async () => `timestamp_utc;looted_by__name;item_id;item_name;quantity
+2026-07-12T04:00:00.000Z;Onslawht;T4_RUNE;Adept's Rune;1`,
+      getMessageDisplayName: async () => 'Chapper',
+      messages: [attachmentMessage],
+      thread,
+    });
 
     assert.equal(result.processedAttachments, 1);
     assert.equal(result.accepted, true);

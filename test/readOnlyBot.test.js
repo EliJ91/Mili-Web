@@ -154,6 +154,6 @@ test('fetches server channels, roles, and members', async () => {
   assert.equal(snapshot.members[0].user.username, 'member');
 });
 
-test('uses the minimum channel read permissions plus Add Reactions for upload status', () => {
-  assert.equal(getReadOnlyPermissionBitfield(), 66624n);
+test('uses only the minimum channel read permissions', () => {
+  assert.equal(getReadOnlyPermissionBitfield(), 66560n);
 });

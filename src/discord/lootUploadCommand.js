@@ -1,24 +1,20 @@
-import { ChannelType } from 'discord.js';
-
 export const DEFAULT_LOOT_LOG_THREAD_CHANNEL_ID = '1492400020958351391';
-export const UPLOAD_ACCEPTED_REACTION = '\u2705';
-export const UPLOAD_REJECTED_REACTION = '\u274C';
 
 const DISCORD_UPLOAD_PERMISSION_KEY = 'uploadLootLogsFromDiscord';
 const MAX_ATTACHMENT_BYTES = 8 * 1024 * 1024;
-const MAX_MESSAGES_PER_THREAD_SCAN = 500;
 const SUPPORTED_ATTACHMENT_EXTENSIONS = new Set(['.csv']);
 const SUPERUSER_DISCORD_USER_IDS = new Set(['264193431830528006']);
+const THREAD_CHANNEL_TYPES = new Set([10, 11, 12]);
 
 function clean(value) {
   return String(value || '').trim();
 }
 
-function requireSupabaseConfig() {
-  const supabaseUrl = clean(process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL);
-  const serviceRoleKey = clean(process.env.SUPABASE_SERVICE_ROLE_KEY);
+function requireSupabaseConfig(runtimeEnv = process.env) {
+  const supabaseUrl = clean(runtimeEnv.SUPABASE_URL || runtimeEnv.VITE_SUPABASE_URL);
+  const serviceRoleKey = clean(runtimeEnv.SUPABASE_SERVICE_ROLE_KEY);
   if (!supabaseUrl || !serviceRoleKey) {
-    throw new Error('SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are required for !upload.');
+    throw new Error('SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are required for Discord uploads.');
   }
   return { serviceRoleKey, supabaseUrl: supabaseUrl.replace(/\/+$/, '') };
 }
@@ -33,36 +29,11 @@ export function isSupportedLogAttachment(attachment) {
   return SUPPORTED_ATTACHMENT_EXTENSIONS.has(fileExtension(attachment?.name));
 }
 
-export function isUploadCommandMessage(message) {
-  const content = clean(message?.content).toLowerCase();
-  return content === '!upload' || content.startsWith('!upload ');
-}
-
-export function isAcceptedUploadCommandResult(result) {
-  return Boolean(result && !result.ignored && !result.forbidden && Number(result.skippedAttachments || 0) === 0);
-}
-
-export async function reactToUploadCommandMessage(message, accepted, logger = console) {
-  if (typeof message?.react !== 'function') return false;
-
-  try {
-    await message.react(accepted ? UPLOAD_ACCEPTED_REACTION : UPLOAD_REJECTED_REACTION);
-    return true;
-  } catch (error) {
-    logger.warn?.('[mili-discord-worker] Could not react to !upload command.', error.message || error);
-    return false;
-  }
-}
-
 function isTargetThread(thread, channelId) {
   return Boolean(
     thread?.id
     && thread?.parentId === channelId
-    && [
-      ChannelType.PublicThread,
-      ChannelType.PrivateThread,
-      ChannelType.AnnouncementThread,
-    ].includes(thread.type),
+    && THREAD_CHANNEL_TYPES.has(Number(thread.type)),
   );
 }
 
@@ -73,7 +44,7 @@ function collectionToArray(value) {
 }
 
 function messageTimestamp(message) {
-  const raw = message?.createdTimestamp || message?.createdAt;
+  const raw = message?.createdTimestamp || message?.createdAt || message?.timestamp;
   const timestamp = typeof raw === 'number' ? raw : new Date(raw || 0).getTime();
   return Number.isFinite(timestamp) ? timestamp : 0;
 }
@@ -98,26 +69,6 @@ export function collectLogAttachmentJobs(messages) {
     ));
 }
 
-async function fetchThreadMessages(thread) {
-  const messages = [];
-  let before;
-
-  while (messages.length < MAX_MESSAGES_PER_THREAD_SCAN) {
-    const batch = await thread.messages.fetch({
-      limit: Math.min(100, MAX_MESSAGES_PER_THREAD_SCAN - messages.length),
-      ...(before ? { before } : {}),
-    });
-    const values = collectionToArray(batch);
-    if (values.length === 0) break;
-
-    messages.push(...values);
-    before = values[values.length - 1].id;
-    if (values.length < 100) break;
-  }
-
-  return messages;
-}
-
 async function fetchAttachmentText(attachment) {
   const url = clean(attachment?.url || attachment?.proxyURL);
   if (!url) throw new Error('Attachment URL is missing.');
@@ -130,14 +81,14 @@ async function fetchAttachmentText(attachment) {
   const size = Number(response.headers.get('content-length')) || 0;
   if (size > MAX_ATTACHMENT_BYTES) throw new Error(`${attachment.name || 'Attachment'} is too large.`);
 
-  const buffer = Buffer.from(await response.arrayBuffer());
+  const buffer = await response.arrayBuffer();
   if (buffer.byteLength > MAX_ATTACHMENT_BYTES) throw new Error(`${attachment.name || 'Attachment'} is too large.`);
 
-  return buffer.toString('utf8');
+  return new TextDecoder().decode(buffer);
 }
 
-async function supabaseRest(path, { body = null, method = 'GET', prefer = 'return=representation' } = {}) {
-  const { serviceRoleKey, supabaseUrl } = requireSupabaseConfig();
+async function supabaseRest(path, { body = null, method = 'GET', prefer = 'return=representation', runtimeEnv = process.env } = {}) {
+  const { serviceRoleKey, supabaseUrl } = requireSupabaseConfig(runtimeEnv);
   const response = await fetch(`${supabaseUrl}/rest/v1/${path}`, {
     body: body ? JSON.stringify(body) : null,
     headers: {
@@ -156,8 +107,8 @@ async function supabaseRest(path, { body = null, method = 'GET', prefer = 'retur
   return data;
 }
 
-async function submitLootLog({ bundleId, lootLogText, originalFileName, username }) {
-  const { serviceRoleKey, supabaseUrl } = requireSupabaseConfig();
+async function submitLootLog({ bundleId, lootLogText, originalFileName, runtimeEnv = process.env, username }) {
+  const { serviceRoleKey, supabaseUrl } = requireSupabaseConfig(runtimeEnv);
   const response = await fetch(`${supabaseUrl}/functions/v1/loot-logs`, {
     body: JSON.stringify({
       bundleId,
@@ -177,7 +128,7 @@ async function submitLootLog({ bundleId, lootLogText, originalFileName, username
   return result;
 }
 
-async function recordActionLog({ actorName, bundleId, fileName, threadName, uploadedBy }) {
+async function recordActionLog({ actorName, bundleId, fileName, runtimeEnv = process.env, threadName, uploadedBy }) {
   try {
     await supabaseRest('webapp_action_logs', {
       body: {
@@ -189,14 +140,15 @@ async function recordActionLog({ actorName, bundleId, fileName, threadName, uplo
         target_type: 'loot-log',
       },
       method: 'POST',
+      runtimeEnv,
     });
   } catch (error) {
     console.warn('[mili-discord-worker] Could not record action log.', error.message || error);
   }
 }
 
-async function loadPermissionRoles() {
-  const rows = await supabaseRest('webapp_permission_settings?id=eq.default&select=settings');
+async function loadPermissionRoles(runtimeEnv = process.env) {
+  const rows = await supabaseRest('webapp_permission_settings?id=eq.default&select=settings', { runtimeEnv });
   return Array.isArray(rows?.[0]?.settings?.roles) ? rows[0].settings.roles : [];
 }
 
@@ -207,54 +159,32 @@ function getMemberRoleIds(member) {
   return [];
 }
 
-async function getCommandMember(message) {
-  if (message?.member) return message.member;
-  if (message?.guild?.members?.fetch && message?.author?.id) {
-    return message.guild.members.fetch(message.author.id);
-  }
-  return null;
-}
-
-export async function memberCanUploadLootLogsFromDiscord(member) {
+export async function memberCanUploadLootLogsFromDiscord(member, runtimeEnv = process.env) {
   const userId = clean(member?.id || member?.user?.id);
   if (SUPERUSER_DISCORD_USER_IDS.has(userId)) return true;
 
   const memberRoleIds = new Set(getMemberRoleIds(member).map(clean).filter(Boolean));
   if (memberRoleIds.size === 0) return false;
 
-  const roles = await loadPermissionRoles();
+  const roles = await loadPermissionRoles(runtimeEnv);
   return roles.some((role) => (
     memberRoleIds.has(clean(role?.roleId))
     && Boolean(role?.permissions?.[DISCORD_UPLOAD_PERMISSION_KEY])
   ));
 }
 
-async function getDisplayName(message) {
-  const nick = clean(message?.member?.nickname || message?.member?.nick);
-  if (nick) return nick;
-
-  if (message?.guild?.members?.fetch && message?.author?.id) {
-    try {
-      const member = await message.guild.members.fetch(message.author.id);
-      return clean(member?.nickname || member?.nick) || 'Unknown Server Member';
-    } catch {
-      // Action history intentionally never falls back to a Discord username.
-    }
-  }
-
-  return 'Unknown Server Member';
-}
-
-async function loadThreadRecord(thread) {
+async function loadThreadRecord(thread, runtimeEnv = process.env) {
   const rows = await supabaseRest(
     `discord_loot_threads?thread_id=eq.${encodeURIComponent(thread.id)}&select=thread_id,bundle_id`,
+    { runtimeEnv },
   );
   return rows?.[0] || null;
 }
 
-async function saveThreadBundle(thread, bundleId, processedAttachmentIds = []) {
+async function saveThreadBundle(thread, bundleId, processedAttachmentIds = [], runtimeEnv = process.env) {
   const bundleRows = await supabaseRest(
     `loot_log_bundles?id=eq.${encodeURIComponent(bundleId)}&select=combined_loot_summary`,
+    { runtimeEnv },
   );
   const currentSummary = bundleRows?.[0]?.combined_loot_summary || {};
   const nextSummary = {
@@ -275,6 +205,7 @@ async function saveThreadBundle(thread, bundleId, processedAttachmentIds = []) {
   await supabaseRest(`loot_log_bundles?id=eq.${encodeURIComponent(bundleId)}`, {
     body: { combined_loot_summary: nextSummary, updated_at: new Date().toISOString() },
     method: 'PATCH',
+    runtimeEnv,
   });
   await supabaseRest('discord_loot_threads?on_conflict=thread_id', {
     body: {
@@ -286,10 +217,11 @@ async function saveThreadBundle(thread, bundleId, processedAttachmentIds = []) {
     },
     method: 'POST',
     prefer: 'resolution=merge-duplicates,return=representation',
+    runtimeEnv,
   });
 }
 
-async function markAttachmentProcessed({ bundleId, job, submittedBy, thread }) {
+async function markAttachmentProcessed({ bundleId, job, runtimeEnv = process.env, submittedBy, thread }) {
   await supabaseRest('discord_loot_attachments?on_conflict=attachment_id', {
     body: {
       attachment_id: job.attachmentId,
@@ -302,30 +234,34 @@ async function markAttachmentProcessed({ bundleId, job, submittedBy, thread }) {
     },
     method: 'POST',
     prefer: 'resolution=merge-duplicates,return=representation',
+    runtimeEnv,
   });
 }
 
-export async function processLootUploadCommand({
-  channelId = process.env.DISCORD_LOOT_LOG_CHANNEL_ID || DEFAULT_LOOT_LOG_THREAD_CHANNEL_ID,
+export async function processLootUploadThread({
+  actorMember,
+  actorName = 'Unknown Server Member',
   fetchAttachmentTextFn = fetchAttachmentText,
-  message,
+  getMessageDisplayName = async () => 'Unknown Server Member',
+  messages = [],
+  runtimeEnv = process.env,
+  thread,
 } = {}) {
-  const thread = message?.channel;
-  if (!isUploadCommandMessage(message) || !isTargetThread(thread, channelId)) {
+  const channelId = runtimeEnv.DISCORD_LOOT_LOG_CHANNEL_ID || DEFAULT_LOOT_LOG_THREAD_CHANNEL_ID;
+  if (!isTargetThread(thread, channelId)) {
     return { accepted: false, ignored: true, processedAttachments: 0, skippedAttachments: 0 };
   }
 
-  const member = await getCommandMember(message);
-  if (!await memberCanUploadLootLogsFromDiscord(member)) {
+  if (!await memberCanUploadLootLogsFromDiscord(actorMember, runtimeEnv)) {
     return { accepted: false, forbidden: true, processedAttachments: 0, skippedAttachments: 0 };
   }
 
-  const messages = await fetchThreadMessages(thread);
   const jobs = collectLogAttachmentJobs(messages);
-  if (jobs.length === 0) return { accepted: true, bundleId: null, processedAttachments: 0, skippedAttachments: 0 };
+  if (jobs.length === 0) {
+    return { accepted: true, bundleId: null, processedAttachments: 0, skippedAttachments: 0 };
+  }
 
-  const threadRecord = await loadThreadRecord(thread);
-  const commandActorName = await getDisplayName(message);
+  const threadRecord = await loadThreadRecord(thread, runtimeEnv);
   let bundleId = threadRecord?.bundle_id || null;
   let processedAttachments = 0;
   let skippedAttachments = 0;
@@ -333,22 +269,24 @@ export async function processLootUploadCommand({
   for (const job of jobs) {
     try {
       const lootLogText = await fetchAttachmentTextFn(job.attachment);
-      const submittedBy = await getDisplayName(job.message);
+      const submittedBy = clean(await getMessageDisplayName(job.message)) || 'Unknown Server Member';
       const result = await submitLootLog({
         bundleId,
         lootLogText,
         originalFileName: clean(thread.name) || job.fileName,
+        runtimeEnv,
         username: submittedBy,
       });
       bundleId = result.bundleId || bundleId;
       if (!bundleId) throw new Error('Upload did not return a bundle id.');
 
-      await saveThreadBundle(thread, bundleId, [job.attachmentId]);
-      await markAttachmentProcessed({ bundleId, job, submittedBy, thread });
+      await saveThreadBundle(thread, bundleId, [job.attachmentId], runtimeEnv);
+      await markAttachmentProcessed({ bundleId, job, runtimeEnv, submittedBy, thread });
       await recordActionLog({
-        actorName: commandActorName,
+        actorName,
         bundleId,
         fileName: job.fileName,
+        runtimeEnv,
         threadName: clean(thread.name),
         uploadedBy: submittedBy,
       });

@@ -1,16 +1,28 @@
 {
   "name": "mili-web",
-  "version": "0.1.6",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "scripts": {
     "discord:worker": "node src/discord/worker.js",
-    "lint": "node --check src/discord/readOnlyBot.js && node --check src/discord/lootUploadCommand.js && node --check src/discord/worker.js",
+    "discord:register": "node scripts/register-upload-command.js",
+    "cf:deploy": "wrangler deploy",
+    "cf:dev": "wrangler dev",
+    "lint": "node --check src/discord/readOnlyBot.js && node --check src/discord/lootUploadCommand.js && node --check src/discord/worker.js && node --check src/cloudflare/worker.js && node --check scripts/register-upload-command.js",
     "test": "node --test",
     "build": "npm run lint"
   },
   "dependencies": {
-    "discord.js": "^14.16.3",
+    "@discordjs/rest": "^2.6.1",
+    "discord-api-types": "^0.38.32",
+    "discord-interactions": "^4.4.0",
+    "discord.js": "^14.26.5",
     "dotenv": "^17.4.2"
+  },
+  "devDependencies": {
+    "wrangler": "^4.110.0"
+  },
+  "overrides": {
+    "undici": "^6.27.0"
   }
 }

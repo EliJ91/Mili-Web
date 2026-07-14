@@ -1,35 +1,7 @@
 import 'dotenv/config';
-import {
-  isAcceptedUploadCommandResult,
-  isUploadCommandMessage,
-  processLootUploadCommand,
-  reactToUploadCommandMessage,
-} from './lootUploadCommand.js';
 import { createReadOnlyDiscordBot } from './readOnlyBot.js';
 
 const bot = createReadOnlyDiscordBot({
-  async onMessageCreate(message) {
-    const isUploadCommand = isUploadCommandMessage(message);
-    try {
-      const result = await processLootUploadCommand({ message });
-      if (isUploadCommand) {
-        await reactToUploadCommandMessage(message, isAcceptedUploadCommandResult(result));
-      }
-      if (result.processedAttachments > 0) {
-        console.log(JSON.stringify({
-          observedAt: new Date().toISOString(),
-          processedAttachments: result.processedAttachments,
-          threadId: message.channel?.id || '',
-          type: 'lootUploadCommand',
-        }));
-      }
-    } catch (error) {
-      if (isUploadCommand) {
-        await reactToUploadCommandMessage(message, false);
-      }
-      console.error('Failed to process Discord loot upload command.', error);
-    }
-  },
   onEvent(event) {
     console.log(JSON.stringify({
       observedAt: new Date().toISOString(),

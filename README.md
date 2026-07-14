@@ -1,18 +1,17 @@
 # Mili Web
 
-Mili Web is a small Discord bot for Militant web tooling.
-
-The bot reads Discord server data needed by the webapp, such as guild/member information. It also watches for the manual `!upload` command in configured loot-log threads, reacts with a status emoji, and uploads attached loot `.csv` files to the webapp database.
+Mili Web provides the Militant Discord integration. The production upload command is a serverless Cloudflare Worker: `/upload` reads the `.csv` loot logs in the current Discord thread and sends them through the existing webapp bundle pipeline. No always-on VM is required.
 
 ## Permissions
 
-Use the minimum Discord permissions needed:
+The bot needs these permissions in the loot-log channel and its threads:
 
 - View Channels
 - Read Message History
-- Add Reactions
 
-Enable these privileged gateway intents in the Discord Developer Portal:
+The `/upload` Cloudflare Worker does not use gateway intents. Discord OAuth login and webapp role checks continue to use the existing Supabase permissions function.
+
+The optional local read-only gateway worker requires these Developer Portal intents:
 
 - Server Members Intent
 - Message Content Intent
@@ -24,13 +23,25 @@ npm install
 copy .env.example .env
 ```
 
-Set `DISCORD_BOT_TOKEN`, `SUPABASE_URL`, and `SUPABASE_SERVICE_ROLE_KEY` in `.env`. `DISCORD_LOOT_LOG_CHANNEL_ID` defaults to the Militant loot-log thread parent channel.
+Set the local values in `.env` when registering or testing the command. Production secrets belong in Cloudflare Worker secrets, never in Git:
 
-## Run
+- `DISCORD_BOT_TOKEN`
+- `DISCORD_PUBLIC_KEY`
+- `SUPABASE_URL`
+- `SUPABASE_SERVICE_ROLE_KEY`
+
+The application, guild, and loot-log channel IDs are configured in `wrangler.jsonc`.
+
+## Deploy
 
 ```bash
-npm run discord:worker
+npm run cf:deploy
+npm run discord:register
 ```
+
+After deployment, set the Worker URL as the application's Interactions Endpoint URL in the Discord Developer Portal. `/upload` is registered as a guild command, so updates are available immediately in the Militant server.
+
+For local Worker development, run `npm run cf:dev`. The legacy `npm run discord:worker` command remains available only for local read-only gateway event monitoring and is not required for `/upload`, Discord login, or webapp permissions.
 
 ## Checks
 
