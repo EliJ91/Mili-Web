@@ -92,7 +92,7 @@ describe('Cloudflare Discord interaction worker', () => {
     assert.deepEqual(await response.json(), { type: InteractionResponseType.Pong });
   });
 
-  it('defers upload work and makes the result ephemeral', async () => {
+  it('acknowledges upload work immediately and makes the result ephemeral', async () => {
     const pending = [];
     const processThread = mock.fn(async () => ({ processedAttachments: 2, skippedAttachments: 0 }));
     const rest = {
@@ -119,8 +119,12 @@ describe('Cloudflare Discord interaction worker', () => {
     await Promise.all(pending);
 
     assert.deepEqual(await response.json(), {
-      data: { flags: MessageFlags.Ephemeral },
-      type: InteractionResponseType.DeferredChannelMessageWithSource,
+      data: {
+        allowed_mentions: { parse: [] },
+        content: 'Upload accepted. Processing loot logs...',
+        flags: MessageFlags.Ephemeral,
+      },
+      type: InteractionResponseType.ChannelMessageWithSource,
     });
     assert.equal(processThread.mock.callCount(), 1);
     assert.equal(rest.patch.mock.callCount(), 1);

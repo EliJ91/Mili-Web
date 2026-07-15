@@ -236,8 +236,12 @@ export async function handleInteractionRequest(request, env, context, dependenci
 
   context.waitUntil(processUploadInteraction(interaction, env, dependencies));
   return jsonResponse({
-    data: { flags: MessageFlags.Ephemeral },
-    type: InteractionResponseType.DeferredChannelMessageWithSource,
+    data: {
+      allowed_mentions: { parse: [] },
+      content: 'Upload accepted. Processing loot logs...',
+      flags: MessageFlags.Ephemeral,
+    },
+    type: InteractionResponseType.ChannelMessageWithSource,
   });
 }
 
