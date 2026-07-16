@@ -13,6 +13,9 @@ import {
 
 const DEFAULT_GUILD_ID = '805908199541702666';
 const MAX_MESSAGES_PER_THREAD = 500;
+const LOOT_LOG_API_URL = 'https://maeljnrgffgrljqusnre.supabase.co/functions/v1/loot-logs';
+const MILITANT_APP_URL = 'https://elij91.github.io/Militant/';
+const MILITANT_PREVIEW_IMAGE_URL = 'https://elij91.github.io/Militant/assets/militant-favicon.png';
 
 function clean(value) {
   return String(value || '').trim();
@@ -22,6 +25,72 @@ function jsonResponse(body, status = 200) {
   return new Response(JSON.stringify(body), {
     headers: { 'Content-Type': 'application/json' },
     status,
+  });
+}
+
+function escapeHtml(value) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+export async function handleLootLogShareRequest(request, dependencies = {}) {
+  if (request.method !== 'GET') return new Response('Method Not Allowed', { status: 405 });
+
+  const requestUrl = new URL(request.url);
+  const bundleId = clean(requestUrl.searchParams.get('bundle'));
+  if (!bundleId) return new Response('Loot log not found.', { status: 404 });
+
+  const apiUrl = new URL(LOOT_LOG_API_URL);
+  apiUrl.searchParams.set('bundleId', bundleId);
+  const fetchImpl = dependencies.fetchImpl || fetch;
+  const apiResponse = await fetchImpl(apiUrl);
+  if (!apiResponse.ok) return new Response('Loot log not found.', { status: 404 });
+
+  const payload = await apiResponse.json();
+  const lootLogTitle = clean(payload?.bundle?.lootFileName) || 'Loot Log';
+  const filterParams = new URLSearchParams(requestUrl.searchParams);
+  filterParams.delete('bundle');
+  const filterQuery = filterParams.toString();
+  const targetUrl = new URL(MILITANT_APP_URL);
+  targetUrl.hash = `shared-log/${encodeURIComponent(bundleId)}${filterQuery ? `?${filterQuery}` : ''}`;
+  const safeTitle = escapeHtml(lootLogTitle);
+  const safeTargetUrl = escapeHtml(targetUrl.toString());
+  const safeRequestUrl = escapeHtml(requestUrl.toString());
+
+  return new Response(`<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="${safeTitle}" />
+    <meta property="og:site_name" content="Militant" />
+    <meta property="og:title" content="Militant" />
+    <meta property="og:description" content="${safeTitle}" />
+    <meta property="og:image" content="${MILITANT_PREVIEW_IMAGE_URL}" />
+    <meta property="og:image:alt" content="Militant bear head logo" />
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="${safeRequestUrl}" />
+    <meta name="twitter:card" content="summary" />
+    <meta name="twitter:title" content="Militant" />
+    <meta name="twitter:description" content="${safeTitle}" />
+    <meta name="twitter:image" content="${MILITANT_PREVIEW_IMAGE_URL}" />
+    <meta http-equiv="refresh" content="0;url=${safeTargetUrl}" />
+    <title>${safeTitle} | Militant</title>
+  </head>
+  <body>
+    <p><a href="${safeTargetUrl}">Open ${safeTitle}</a></p>
+    <script>window.location.replace(${JSON.stringify(targetUrl.toString())});</script>
+  </body>
+</html>`, {
+    headers: {
+      'Cache-Control': 'public, max-age=60',
+      'Content-Type': 'text/html; charset=utf-8',
+    },
+    status: 200,
   });
 }
 
@@ -202,6 +271,9 @@ export async function processUploadInteraction(interaction, env, dependencies = 
 
 export async function handleInteractionRequest(request, env, context, dependencies = {}) {
   const requestUrl = new URL(request.url);
+  if (requestUrl.pathname === '/share/loot-log') {
+    return handleLootLogShareRequest(request, dependencies);
+  }
   if (requestUrl.pathname === '/webapp/member') {
     return handleMemberLookupRequest(request, env, dependencies);
   }

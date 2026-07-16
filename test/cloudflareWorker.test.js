@@ -7,6 +7,7 @@ import {
 } from 'discord-api-types/v10';
 import {
   handleInteractionRequest,
+  handleLootLogShareRequest,
   handleMemberLookupRequest,
   processUploadInteraction,
 } from '../src/cloudflare/worker.js';
@@ -32,6 +33,24 @@ function interaction(overrides = {}) {
 }
 
 describe('Cloudflare Discord interaction worker', () => {
+  it('renders a loot log title in the shared link preview', async () => {
+    const response = await handleLootLogShareRequest(
+      new Request('https://worker.test/share/loot-log?bundle=bundle-1&s=kept'),
+      {
+        fetchImpl: mock.fn(async () => new Response(JSON.stringify({
+          bundle: { lootFileName: '02 CTA 7-15' },
+        }), { status: 200 })),
+      },
+    );
+    const html = await response.text();
+
+    assert.equal(response.status, 200);
+    assert.equal(response.headers.get('content-type'), 'text/html; charset=utf-8');
+    assert.match(html, /property="og:description" content="02 CTA 7-15"/);
+    assert.match(html, /#shared-log\/bundle-1\?s=kept/);
+    assert.doesNotMatch(html, /Hold the line\./);
+  });
+
   it('returns a guild member nickname and roles to the authenticated webapp backend', async () => {
     const rest = {
       get: mock.fn(async () => ({
