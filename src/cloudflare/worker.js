@@ -209,6 +209,7 @@ async function actorNickname(rest, interaction) {
 function resultMessage(result) {
   if (result?.forbidden) return 'You do not have permission to upload loot logs from Discord.';
   if (result?.ignored) return 'Use `/upload` inside a loot-log thread.';
+  if (result?.error) return result.error;
   if (!result?.processedAttachments && !result?.skippedAttachments) {
     return 'No `.csv` loot logs were found in this thread.';
   }
