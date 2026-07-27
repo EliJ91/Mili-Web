@@ -2,7 +2,6 @@ export const DEFAULT_LOOT_LOG_THREAD_CHANNEL_ID = '1492400020958351391';
 
 const DISCORD_UPLOAD_PERMISSION_KEY = 'uploadLootLogsFromDiscord';
 const MAX_ATTACHMENT_BYTES = 8 * 1024 * 1024;
-export const LOOT_LOG_START_WINDOW_MS = 30 * 60 * 1000;
 const SUPPORTED_ATTACHMENT_EXTENSIONS = new Set(['.csv']);
 const SUPERUSER_DISCORD_USER_IDS = new Set(['264193431830528006']);
 const THREAD_CHANNEL_TYPES = new Set([10, 11, 12]);
@@ -91,35 +90,6 @@ async function fetchAttachmentText(attachment) {
   if (buffer.byteLength > MAX_ATTACHMENT_BYTES) throw new Error(`${fileName} is too large.`);
 
   return new TextDecoder().decode(buffer);
-}
-
-export function getLootLogStartAt(text, label = 'Loot log') {
-  const timestamps = String(text || '')
-    .replace(/^\uFEFF/, '')
-    .split(/\r?\n/)
-    .map((line) => clean(line))
-    .filter(Boolean)
-    .map((line) => clean(line.split(';', 1)[0]).replace(/^"|"$/g, ''))
-    .filter((value) => !/^timestamp_utc$/i.test(value))
-    .map((value) => new Date(value).getTime())
-    .filter(Number.isFinite);
-
-  if (timestamps.length === 0) {
-    throw new Error(`${label} does not contain any valid timestamp_utc values.`);
-  }
-  return new Date(Math.min(...timestamps)).toISOString();
-}
-
-export function validateLootLogStartWindow(logs) {
-  const ordered = logs.map((log, index) => {
-    const startAt = log.startAt || getLootLogStartAt(log.lootLogText, log.fileName || `Loot log ${index + 1}`);
-    return { ...log, startAt, startTime: new Date(startAt).getTime() };
-  }).sort((left, right) => left.startTime - right.startTime);
-
-  if (ordered.length > 1 && ordered.at(-1).startTime - ordered[0].startTime > LOOT_LOG_START_WINDOW_MS) {
-    throw new Error('All loot logs in one entry must start within 30 minutes of the earliest loot log.');
-  }
-  return ordered;
 }
 
 async function supabaseRest(path, { body = null, method = 'GET', prefer = 'return=representation', runtimeEnv = process.env } = {}) {
@@ -296,49 +266,34 @@ export async function processLootUploadThread({
     return { accepted: true, bundleId: null, processedAttachments: 0, skippedAttachments: 0 };
   }
 
-  let preparedJobs;
-  try {
-    preparedJobs = validateLootLogStartWindow(await Promise.all(jobs.map(async (job) => ({
-      ...job,
-      lootLogText: await fetchAttachmentTextFn(job.attachment),
-      submittedBy: clean(await getMessageDisplayName(job.message)) || 'Unknown Server Member',
-    }))));
-  } catch (error) {
-    return {
-      accepted: false,
-      bundleId: null,
-      error: error.message || 'The loot logs could not be validated.',
-      processedAttachments: 0,
-      skippedAttachments: jobs.length,
-    };
-  }
-
   const threadRecord = await loadThreadRecord(thread, runtimeEnv);
   let bundleId = threadRecord?.bundle_id || null;
   let processedAttachments = 0;
   let skippedAttachments = 0;
 
-  for (const job of preparedJobs) {
+  for (const job of jobs) {
     try {
+      const lootLogText = await fetchAttachmentTextFn(job.attachment);
+      const submittedBy = clean(await getMessageDisplayName(job.message)) || 'Unknown Server Member';
       const result = await submitLootLog({
         bundleId,
-        lootLogText: job.lootLogText,
+        lootLogText,
         originalFileName: clean(thread.name) || job.fileName,
         runtimeEnv,
-        username: job.submittedBy,
+        username: submittedBy,
       });
       bundleId = result.bundleId || bundleId;
       if (!bundleId) throw new Error('Upload did not return a bundle id.');
 
       await saveThreadBundle(thread, bundleId, [job.attachmentId], runtimeEnv);
-      await markAttachmentProcessed({ bundleId, job, runtimeEnv, submittedBy: job.submittedBy, thread });
+      await markAttachmentProcessed({ bundleId, job, runtimeEnv, submittedBy, thread });
       await recordActionLog({
         actorName,
         bundleId,
         fileName: job.fileName,
         runtimeEnv,
         threadName: clean(thread.name),
-        uploadedBy: job.submittedBy,
+        uploadedBy: submittedBy,
       });
       processedAttachments += 1;
     } catch (error) {

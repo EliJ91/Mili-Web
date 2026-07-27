@@ -4,11 +4,9 @@ import { ChannelType } from 'discord.js';
 import {
   DEFAULT_LOOT_LOG_THREAD_CHANNEL_ID,
   collectLogAttachmentJobs,
-  getLootLogStartAt,
   isSupportedLogAttachment,
   memberCanUploadLootLogsFromDiscord,
   processLootUploadThread,
-  validateLootLogStartWindow,
 } from '../src/discord/lootUploadCommand.js';
 
 const originalEnv = { ...process.env };
@@ -71,49 +69,6 @@ describe('loot upload command helpers', () => {
     const older = createMessage({ attachment: createAttachment('old', 'old.csv'), id: 'message-1', timestamp: 100 });
     const newer = createMessage({ attachment: createAttachment('new', 'new.csv'), id: 'message-2', timestamp: 200 });
     assert.deepEqual(collectLogAttachmentJobs([newer, older]).map((job) => job.attachmentId), ['old', 'new']);
-  });
-
-  it('orders merged loot logs by their earliest loot event', () => {
-    const later = {
-      fileName: 'later.csv',
-      lootLogText: 'timestamp_utc;looted_by__name\n2026-07-25T04:20:00.000Z;Later',
-    };
-    const earlier = {
-      fileName: 'earlier.csv',
-      lootLogText: 'timestamp_utc;looted_by__name\n2026-07-25T04:00:00.000Z;Earlier',
-    };
-
-    assert.equal(getLootLogStartAt(later.lootLogText), '2026-07-25T04:20:00.000Z');
-    assert.deepEqual(validateLootLogStartWindow([later, earlier]).map((log) => log.fileName), [
-      'earlier.csv',
-      'later.csv',
-    ]);
-  });
-
-  it('rejects a Discord bundle before uploading when log starts are over 30 minutes apart', async () => {
-    const first = createMessage({ attachment: createAttachment('first', 'first.csv'), id: 'first-message' });
-    const stale = createMessage({ attachment: createAttachment('stale', 'stale.csv'), id: 'stale-message' });
-    const thread = createThread([first, stale]);
-    globalThis.fetch = mock.fn(async () => {
-      throw new Error('No database request should occur for an invalid bundle.');
-    });
-
-    const result = await processLootUploadThread({
-      actorMember: { id: '264193431830528006', roles: [] },
-      actorName: 'Onslawht',
-      fetchAttachmentTextFn: async (attachment) => (
-        attachment.id === 'first'
-          ? 'timestamp_utc;looted_by__name\n2026-07-25T04:00:00.000Z;First'
-          : 'timestamp_utc;looted_by__name\n2026-07-25T05:00:01.000Z;Stale'
-      ),
-      messages: [first, stale],
-      thread,
-    });
-
-    assert.equal(result.accepted, false);
-    assert.equal(result.processedAttachments, 0);
-    assert.match(result.error, /within 30 minutes/i);
-    assert.equal(globalThis.fetch.mock.callCount(), 0);
   });
 
   it('collects Discord REST attachments that use filename instead of name', () => {
