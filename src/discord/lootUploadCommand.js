@@ -94,17 +94,12 @@ async function fetchAttachmentText(attachment) {
 }
 
 export function getLootLogStartAt(text, label = 'Loot log') {
-  const rows = String(text || '')
+  const timestamps = String(text || '')
     .replace(/^\uFEFF/, '')
     .split(/\r?\n/)
     .map((line) => clean(line))
-    .filter(Boolean);
-  const timestampIndex = rows
-    .map((line) => line.split(';').map((value) => clean(value).replace(/^"|"$/g, '')))
-    .find((values) => values.some((value) => /^timestamp_utc$/i.test(value)))
-    ?.findIndex((value) => /^timestamp_utc$/i.test(value)) ?? 0;
-  const timestamps = rows
-    .map((line) => clean(line.split(';')[timestampIndex]).replace(/^"|"$/g, ''))
+    .filter(Boolean)
+    .map((line) => clean(line.split(';', 1)[0]).replace(/^"|"$/g, ''))
     .filter((value) => !/^timestamp_utc$/i.test(value))
     .map((value) => new Date(value).getTime())
     .filter(Number.isFinite);
@@ -115,54 +110,14 @@ export function getLootLogStartAt(text, label = 'Loot log') {
   return new Date(Math.min(...timestamps)).toISOString();
 }
 
-function filterLootLogBefore(text, cutoffTime) {
-  const lines = String(text || '').split(/\r?\n/);
-  const timestampIndex = lines
-    .map((line) => line.split(';').map((value) => clean(value).replace(/^"|"$/g, '')))
-    .find((values) => values.some((value) => /^timestamp_utc$/i.test(value)))
-    ?.findIndex((value) => /^timestamp_utc$/i.test(value)) ?? 0;
-
-  return lines.filter((line) => {
-    const value = clean(line.split(';')[timestampIndex]).replace(/^"|"$/g, '');
-    const timestamp = new Date(value).getTime();
-    return !Number.isFinite(timestamp) || timestamp >= cutoffTime;
-  }).join('\n');
-}
-
-function closestStartPair(logs) {
-  const pairs = [];
-  for (let left = 0; left < logs.length; left += 1) {
-    for (let right = left + 1; right < logs.length; right += 1) {
-      pairs.push({
-        distance: Math.abs(logs[left].startTime - logs[right].startTime),
-        logs: [logs[left], logs[right]],
-      });
-    }
-  }
-  return pairs.sort((left, right) => left.distance - right.distance)[0] || null;
-}
-
 export function validateLootLogStartWindow(logs) {
-  let ordered = logs.map((log, index) => {
+  const ordered = logs.map((log, index) => {
     const startAt = log.startAt || getLootLogStartAt(log.lootLogText, log.fileName || `Loot log ${index + 1}`);
     return { ...log, startAt, startTime: new Date(startAt).getTime() };
   }).sort((left, right) => left.startTime - right.startTime);
 
-  if (ordered.length === 3) {
-    const likelyPair = closestStartPair(ordered);
-    if (likelyPair && likelyPair.distance <= LOOT_LOG_START_WINDOW_MS) {
-      const likelyStart = Math.min(...likelyPair.logs.map((log) => log.startTime));
-      const cutoffTime = likelyStart - LOOT_LOG_START_WINDOW_MS;
-      ordered = ordered.map((log) => {
-        const lootLogText = filterLootLogBefore(log.lootLogText, cutoffTime);
-        try {
-          const startAt = getLootLogStartAt(lootLogText, log.fileName);
-          return { ...log, lootLogText, startAt, startTime: new Date(startAt).getTime() };
-        } catch {
-          return null;
-        }
-      }).filter(Boolean).sort((left, right) => left.startTime - right.startTime);
-    }
+  if (ordered.length > 1 && ordered.at(-1).startTime - ordered[0].startTime > LOOT_LOG_START_WINDOW_MS) {
+    throw new Error('All loot logs in one entry must start within 30 minutes of the earliest loot log.');
   }
   return ordered;
 }
