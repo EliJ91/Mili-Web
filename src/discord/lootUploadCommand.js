@@ -5,7 +5,7 @@ const MAX_ATTACHMENT_BYTES = 8 * 1024 * 1024;
 const SUPPORTED_ATTACHMENT_EXTENSIONS = new Set(['.csv']);
 const SUPERUSER_DISCORD_USER_IDS = new Set(['264193431830528006']);
 const THREAD_CHANNEL_TYPES = new Set([10, 11, 12]);
-const CTA_TIMER_HOURS = new Set(Array.from({ length: 12 }, (_, index) => String(index * 2).padStart(2, '0')));
+const CTA_TIMER_HOURS = new Set(Array.from({ length: 24 }, (_, index) => String(index).padStart(2, '0')));
 
 function clean(value) {
   return String(value || '').trim();
@@ -123,8 +123,7 @@ function filterLootLogAtOrAfter(text, cutoffTime) {
 
 export function applyCtaTimerToLootLogs(logs, ctaTimer) {
   const normalizedTimer = clean(ctaTimer).padStart(2, '0');
-  if (!CTA_TIMER_HOURS.has(normalizedTimer)) throw new Error('CTA Timer must be an even UTC hour from 00 through 22.');
-  if (normalizedTimer === '00') return logs;
+  if (!CTA_TIMER_HOURS.has(normalizedTimer)) throw new Error('CTA Timer must be a UTC hour from 00 through 23.');
 
   const allTimestamps = logs.flatMap((log) => lootLogTimestamps(log.lootLogText));
   if (allTimestamps.length === 0) return logs;

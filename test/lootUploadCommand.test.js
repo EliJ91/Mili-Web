@@ -72,14 +72,26 @@ describe('loot upload command helpers', () => {
     assert.deepEqual(collectLogAttachmentJobs([newer, older]).map((job) => job.attachmentId), ['old', 'new']);
   });
 
-  it('keeps all events when the CTA Timer is 00 UTC', () => {
+  it('removes prior-day events when the CTA Timer is 00 UTC', () => {
     const lootLogText = `timestamp_utc;looted_by__name
 2026-07-11T23:59:00.000Z;Earlier
 2026-07-12T00:10:00.000Z;Current`;
     const filtered = applyCtaTimerToLootLogs([{ lootLogText }], '00');
 
-    assert.match(filtered[0].lootLogText, /23:59:00/);
+    assert.doesNotMatch(filtered[0].lootLogText, /23:59:00/);
     assert.match(filtered[0].lootLogText, /00:10:00/);
+  });
+
+  it('accepts odd-numbered CTA Timer hours', () => {
+    const filtered = applyCtaTimerToLootLogs([{
+      lootLogText: `timestamp_utc;looted_by__name
+2026-07-27T22:59:59.000Z;Early
+2026-07-27T23:00:00.000Z;Start
+2026-07-27T23:30:00.000Z;Current`,
+    }], '23');
+
+    assert.doesNotMatch(filtered[0].lootLogText, /22:59:59/);
+    assert.match(filtered[0].lootLogText, /23:00:00/);
   });
 
   it('removes events before the selected CTA Timer from every merged log', () => {

@@ -15,8 +15,8 @@ await rest.post(Routes.applicationGuildCommands(applicationId, guildId), {
     dm_permission: false,
     name: 'upload',
     options: [{
-      choices: Array.from({ length: 12 }, (_, index) => {
-        const hour = String(index * 2).padStart(2, '0');
+      choices: Array.from({ length: 24 }, (_, index) => {
+        const hour = String(index).padStart(2, '0');
         return { name: `${hour} UTC`, value: hour };
       }),
       description: 'Earliest UTC hour to keep in the merged loot log',
