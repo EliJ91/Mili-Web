@@ -90,30 +90,43 @@ describe('loot upload command helpers', () => {
     ]);
   });
 
-  it('rejects a Discord bundle before uploading when log starts are over 30 minutes apart', async () => {
-    const first = createMessage({ attachment: createAttachment('first', 'first.csv'), id: 'first-message' });
-    const stale = createMessage({ attachment: createAttachment('stale', 'stale.csv'), id: 'stale-message' });
-    const thread = createThread([first, stale]);
-    globalThis.fetch = mock.fn(async () => {
-      throw new Error('No database request should occur for an invalid bundle.');
-    });
+  it('uses three log starts to trim stale events before the likely timer', () => {
+    const logs = validateLootLogStartWindow([
+      {
+        fileName: 'noisy.csv',
+        lootLogText: `timestamp_utc;looted_by__name
+2026-07-25T09:00:00.000Z;Stale
+2026-07-25T11:29:59.000Z;TooEarly
+2026-07-25T11:30:00.000Z;Relevant`,
+      },
+      {
+        fileName: 'timer.csv',
+        lootLogText: 'timestamp_utc;looted_by__name\n2026-07-25T12:00:00.000Z;Timer',
+      },
+      {
+        fileName: 'second.csv',
+        lootLogText: 'timestamp_utc;looted_by__name\n2026-07-25T12:15:00.000Z;Second',
+      },
+    ]);
 
-    const result = await processLootUploadThread({
-      actorMember: { id: '264193431830528006', roles: [] },
-      actorName: 'Onslawht',
-      fetchAttachmentTextFn: async (attachment) => (
-        attachment.id === 'first'
-          ? 'timestamp_utc;looted_by__name\n2026-07-25T04:00:00.000Z;First'
-          : 'timestamp_utc;looted_by__name\n2026-07-25T05:00:01.000Z;Stale'
-      ),
-      messages: [first, stale],
-      thread,
-    });
+    assert.equal(logs[0].startAt, '2026-07-25T11:30:00.000Z');
+    assert.doesNotMatch(logs[0].lootLogText, /09:00:00|11:29:59/);
+    assert.match(logs[0].lootLogText, /11:30:00/);
+  });
 
-    assert.equal(result.accepted, false);
-    assert.equal(result.processedAttachments, 0);
-    assert.match(result.error, /within 30 minutes/i);
-    assert.equal(globalThis.fetch.mock.callCount(), 0);
+  it('does not infer a timer from only two logs', () => {
+    const logs = validateLootLogStartWindow([
+      {
+        fileName: 'old.csv',
+        lootLogText: 'timestamp_utc;looted_by__name\n2026-07-25T09:00:00.000Z;Old',
+      },
+      {
+        fileName: 'timer.csv',
+        lootLogText: 'timestamp_utc;looted_by__name\n2026-07-25T12:00:00.000Z;Timer',
+      },
+    ]);
+
+    assert.equal(logs[0].startAt, '2026-07-25T09:00:00.000Z');
   });
 
   it('collects Discord REST attachments that use filename instead of name', () => {
