@@ -1,6 +1,6 @@
 import 'dotenv/config';
 import { REST } from '@discordjs/rest';
-import { ApplicationCommandType, Routes } from 'discord-api-types/v10';
+import { ApplicationCommandOptionType, ApplicationCommandType, Routes } from 'discord-api-types/v10';
 
 const applicationId = process.env.DISCORD_APPLICATION_ID || '1525606439500910682';
 const guildId = process.env.DISCORD_GUILD_ID || '805908199541702666';
@@ -14,6 +14,16 @@ await rest.post(Routes.applicationGuildCommands(applicationId, guildId), {
     description: 'Upload the CSV loot logs attached to this thread',
     dm_permission: false,
     name: 'upload',
+    options: [{
+      choices: Array.from({ length: 12 }, (_, index) => {
+        const hour = String(index * 2).padStart(2, '0');
+        return { name: `${hour} UTC`, value: hour };
+      }),
+      description: 'Earliest UTC hour to keep in the merged loot log',
+      name: 'cta_timer',
+      required: true,
+      type: ApplicationCommandOptionType.String,
+    }],
     type: ApplicationCommandType.ChatInput,
   },
 });

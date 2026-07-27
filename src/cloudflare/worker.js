@@ -190,6 +190,10 @@ function actorMember(interaction) {
   };
 }
 
+function commandOption(interaction, name) {
+  return interaction?.data?.options?.find((option) => option?.name === name)?.value;
+}
+
 async function actorNickname(rest, interaction) {
   const inlineNickname = clean(interaction?.member?.nick);
   if (inlineNickname) return inlineNickname;
@@ -257,6 +261,7 @@ export async function processUploadInteraction(interaction, env, dependencies = 
     const result = await processThread({
       actorMember: actorMember(interaction),
       actorName: await actorNickname(rest, interaction),
+      ctaTimer: clean(commandOption(interaction, 'cta_timer')) || '00',
       getMessageDisplayName: createDisplayNameResolver(rest, guildId),
       messages,
       runtimeEnv: env,

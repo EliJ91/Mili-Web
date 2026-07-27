@@ -5,6 +5,7 @@ const MAX_ATTACHMENT_BYTES = 8 * 1024 * 1024;
 const SUPPORTED_ATTACHMENT_EXTENSIONS = new Set(['.csv']);
 const SUPERUSER_DISCORD_USER_IDS = new Set(['264193431830528006']);
 const THREAD_CHANNEL_TYPES = new Set([10, 11, 12]);
+const CTA_TIMER_HOURS = new Set(Array.from({ length: 12 }, (_, index) => String(index * 2).padStart(2, '0')));
 
 function clean(value) {
   return String(value || '').trim();
@@ -90,6 +91,58 @@ async function fetchAttachmentText(attachment) {
   if (buffer.byteLength > MAX_ATTACHMENT_BYTES) throw new Error(`${fileName} is too large.`);
 
   return new TextDecoder().decode(buffer);
+}
+
+function timestampColumnIndex(lines) {
+  for (const line of lines) {
+    const values = line.split(';').map((value) => clean(value).replace(/^"|"$/g, ''));
+    const index = values.findIndex((value) => /^timestamp_utc$/i.test(value));
+    if (index >= 0) return index;
+  }
+  return 0;
+}
+
+function lootLogTimestamps(text) {
+  const lines = String(text || '').replace(/^\uFEFF/, '').split(/\r?\n/);
+  const timestampIndex = timestampColumnIndex(lines);
+  return lines.map((line) => {
+    const value = clean(line.split(';')[timestampIndex]).replace(/^"|"$/g, '');
+    return new Date(value).getTime();
+  }).filter(Number.isFinite);
+}
+
+function filterLootLogAtOrAfter(text, cutoffTime) {
+  const lines = String(text || '').replace(/^\uFEFF/, '').split(/\r?\n/);
+  const timestampIndex = timestampColumnIndex(lines);
+  return lines.filter((line) => {
+    const value = clean(line.split(';')[timestampIndex]).replace(/^"|"$/g, '');
+    const timestamp = new Date(value).getTime();
+    return !Number.isFinite(timestamp) || timestamp >= cutoffTime;
+  }).join('\n');
+}
+
+export function applyCtaTimerToLootLogs(logs, ctaTimer) {
+  const normalizedTimer = clean(ctaTimer).padStart(2, '0');
+  if (!CTA_TIMER_HOURS.has(normalizedTimer)) throw new Error('CTA Timer must be an even UTC hour from 00 through 22.');
+  if (normalizedTimer === '00') return logs;
+
+  const allTimestamps = logs.flatMap((log) => lootLogTimestamps(log.lootLogText));
+  if (allTimestamps.length === 0) return logs;
+
+  const latestTime = Math.max(...allTimestamps);
+  const latestDate = new Date(latestTime);
+  let cutoffTime = Date.UTC(
+    latestDate.getUTCFullYear(),
+    latestDate.getUTCMonth(),
+    latestDate.getUTCDate(),
+    Number(normalizedTimer),
+  );
+  if (cutoffTime > latestTime) cutoffTime -= 24 * 60 * 60 * 1000;
+
+  return logs.map((log) => ({
+    ...log,
+    lootLogText: filterLootLogAtOrAfter(log.lootLogText, cutoffTime),
+  })).filter((log) => lootLogTimestamps(log.lootLogText).length > 0);
 }
 
 async function supabaseRest(path, { body = null, method = 'GET', prefer = 'return=representation', runtimeEnv = process.env } = {}) {
@@ -246,6 +299,7 @@ async function markAttachmentProcessed({ bundleId, job, runtimeEnv = process.env
 export async function processLootUploadThread({
   actorMember,
   actorName = 'Unknown Server Member',
+  ctaTimer = '00',
   fetchAttachmentTextFn = fetchAttachmentText,
   getMessageDisplayName = async () => 'Unknown Server Member',
   messages = [],
@@ -266,34 +320,37 @@ export async function processLootUploadThread({
     return { accepted: true, bundleId: null, processedAttachments: 0, skippedAttachments: 0 };
   }
 
+  const preparedJobs = applyCtaTimerToLootLogs(await Promise.all(jobs.map(async (job) => ({
+    ...job,
+    lootLogText: await fetchAttachmentTextFn(job.attachment),
+    submittedBy: clean(await getMessageDisplayName(job.message)) || 'Unknown Server Member',
+  }))), ctaTimer);
   const threadRecord = await loadThreadRecord(thread, runtimeEnv);
   let bundleId = threadRecord?.bundle_id || null;
   let processedAttachments = 0;
   let skippedAttachments = 0;
 
-  for (const job of jobs) {
+  for (const job of preparedJobs) {
     try {
-      const lootLogText = await fetchAttachmentTextFn(job.attachment);
-      const submittedBy = clean(await getMessageDisplayName(job.message)) || 'Unknown Server Member';
       const result = await submitLootLog({
         bundleId,
-        lootLogText,
+        lootLogText: job.lootLogText,
         originalFileName: clean(thread.name) || job.fileName,
         runtimeEnv,
-        username: submittedBy,
+        username: job.submittedBy,
       });
       bundleId = result.bundleId || bundleId;
       if (!bundleId) throw new Error('Upload did not return a bundle id.');
 
       await saveThreadBundle(thread, bundleId, [job.attachmentId], runtimeEnv);
-      await markAttachmentProcessed({ bundleId, job, runtimeEnv, submittedBy, thread });
+      await markAttachmentProcessed({ bundleId, job, runtimeEnv, submittedBy: job.submittedBy, thread });
       await recordActionLog({
         actorName,
         bundleId,
         fileName: job.fileName,
         runtimeEnv,
         threadName: clean(thread.name),
-        uploadedBy: submittedBy,
+        uploadedBy: job.submittedBy,
       });
       processedAttachments += 1;
     } catch (error) {

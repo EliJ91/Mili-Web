@@ -23,7 +23,7 @@ function interaction(overrides = {}) {
   return {
     application_id: 'application-1',
     channel_id: 'thread-1',
-    data: { name: 'upload' },
+    data: { name: 'upload', options: [{ name: 'cta_timer', type: 3, value: '02' }] },
     guild_id: 'guild-1',
     member: { nick: 'Onslawht', roles: ['role-1'], user: { id: 'user-1' } },
     token: 'interaction-token',
@@ -165,6 +165,7 @@ describe('Cloudflare Discord interaction worker', () => {
     const options = processThread.mock.calls[0].arguments[0];
     assert.equal(options.actorName, 'Onslawht');
     assert.deepEqual(options.actorMember.roles, ['role-1']);
+    assert.equal(options.ctaTimer, '02');
     assert.equal(options.thread.name, '02 CTA');
   });
 });

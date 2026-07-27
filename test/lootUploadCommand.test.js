@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { afterEach, describe, it, mock } from 'node:test';
 import { ChannelType } from 'discord.js';
 import {
+  applyCtaTimerToLootLogs,
   DEFAULT_LOOT_LOG_THREAD_CHANNEL_ID,
   collectLogAttachmentJobs,
   isSupportedLogAttachment,
@@ -69,6 +70,49 @@ describe('loot upload command helpers', () => {
     const older = createMessage({ attachment: createAttachment('old', 'old.csv'), id: 'message-1', timestamp: 100 });
     const newer = createMessage({ attachment: createAttachment('new', 'new.csv'), id: 'message-2', timestamp: 200 });
     assert.deepEqual(collectLogAttachmentJobs([newer, older]).map((job) => job.attachmentId), ['old', 'new']);
+  });
+
+  it('keeps all events when the CTA Timer is 00 UTC', () => {
+    const lootLogText = `timestamp_utc;looted_by__name
+2026-07-11T23:59:00.000Z;Earlier
+2026-07-12T00:10:00.000Z;Current`;
+    const filtered = applyCtaTimerToLootLogs([{ lootLogText }], '00');
+
+    assert.match(filtered[0].lootLogText, /23:59:00/);
+    assert.match(filtered[0].lootLogText, /00:10:00/);
+  });
+
+  it('removes events before the selected CTA Timer from every merged log', () => {
+    const filtered = applyCtaTimerToLootLogs([
+      {
+        fileName: 'old.csv',
+        lootLogText: `timestamp_utc;looted_by__name
+2026-07-11T23:59:00.000Z;Old
+2026-07-12T01:59:59.000Z;Early
+2026-07-12T02:00:00.000Z;Start`,
+      },
+      {
+        fileName: 'current.csv',
+        lootLogText: 'timestamp_utc;looted_by__name\n2026-07-12T04:00:00.000Z;Current',
+      },
+    ], '02');
+
+    assert.doesNotMatch(filtered[0].lootLogText, /23:59:00|01:59:59/);
+    assert.match(filtered[0].lootLogText, /02:00:00/);
+    assert.match(filtered[1].lootLogText, /04:00:00/);
+  });
+
+  it('uses the previous UTC day for a CTA Timer that crosses midnight', () => {
+    const filtered = applyCtaTimerToLootLogs([{
+      lootLogText: `timestamp_utc;looted_by__name
+2026-07-11T21:59:59.000Z;Old
+2026-07-11T22:00:00.000Z;Start
+2026-07-12T00:30:00.000Z;Current`,
+    }], '22');
+
+    assert.doesNotMatch(filtered[0].lootLogText, /21:59:59/);
+    assert.match(filtered[0].lootLogText, /22:00:00/);
+    assert.match(filtered[0].lootLogText, /00:30:00/);
   });
 
   it('collects Discord REST attachments that use filename instead of name', () => {
