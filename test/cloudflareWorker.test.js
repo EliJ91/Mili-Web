@@ -259,6 +259,40 @@ describe('Cloudflare Discord interaction worker', () => {
     assert.equal(postedBy, 'Zikeman');
   });
 
+  it('normalizes decorative Discord display names before upload', async () => {
+    let postedBy = '';
+    const processThread = mock.fn(async (options) => {
+      postedBy = await options.getMessageDisplayName(options.messages[0]);
+      return { processedAttachments: 1, skippedAttachments: 0 };
+    });
+    const rest = {
+      get: mock.fn(async (route) => {
+        if (route.includes('/messages')) {
+          return [{
+            attachments: [{ filename: 'mark.csv', id: 'attachment-1' }],
+            author: { global_name: '\u{1D440}\u{1D44E}\u{1D45F}\u{1D458}', id: 'user-mark', username: 'account-name' },
+            id: 'message-1',
+            member: { nick: null },
+            timestamp: '2026-07-30T02:00:00Z',
+          }];
+        }
+        return { id: 'thread-1', name: '02 CTA', parent_id: 'parent-1', type: 11 };
+      }),
+      patch: mock.fn(async () => ({})),
+    };
+    const command = interaction({
+      member: {
+        roles: ['role-1'],
+        user: { global_name: '\u{1D440}\u{1D44E}\u{1D45F}\u{1D458}', id: 'user-mark' },
+      },
+    });
+
+    await processUploadInteraction(command, env, { processThread, rest });
+
+    assert.equal(processThread.mock.calls[0].arguments[0].actorName, 'Mark');
+    assert.equal(postedBy, 'Mark');
+  });
+
   it('never substitutes the Discord account username for a server-visible name', async () => {
     let postedBy = '';
     const processThread = mock.fn(async (options) => {

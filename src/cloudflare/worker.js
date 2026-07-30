@@ -21,6 +21,10 @@ function clean(value) {
   return String(value || '').trim();
 }
 
+function normalizeDisplayName(value) {
+  return clean(String(value || '').normalize('NFKC').replace(/[\u200B-\u200D\uFEFF]/g, ''));
+}
+
 function jsonResponse(body, status = 200) {
   return new Response(JSON.stringify(body), {
     headers: { 'Content-Type': 'application/json' },
@@ -107,7 +111,7 @@ function bearerToken(request) {
 }
 
 function formatMember(guildId, userId, member) {
-  const guildNickname = clean(member?.nick || member?.user?.global_name || member?.user?.username);
+  const guildNickname = normalizeDisplayName(member?.nick || member?.user?.global_name || member?.user?.username);
   return {
     discordGuildId: guildId,
     discordUserId: userId,
@@ -163,7 +167,7 @@ async function fetchThreadMessages(rest, threadId) {
 
 function createDisplayNameResolver() {
   return async (message) => {
-    return clean(
+    return normalizeDisplayName(
       message?.member?.nick
       || message?.member?.nickname
       || message?.author?.global_name,
@@ -183,7 +187,7 @@ function commandOption(interaction, name) {
 }
 
 function actorNickname(interaction) {
-  return clean(
+  return normalizeDisplayName(
     interaction?.member?.nick
     || interaction?.member?.user?.global_name
     || interaction?.user?.global_name,
