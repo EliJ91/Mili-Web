@@ -190,19 +190,47 @@ function actorNickname(interaction) {
   ) || 'Unknown Server Member';
 }
 
-function resultMessage(result) {
+function fileList(files, limit = 8) {
+  const names = (Array.isArray(files) ? files : [])
+    .map((file) => clean(typeof file === 'string' ? file : file?.fileName).slice(0, 120))
+    .filter(Boolean);
+  if (names.length === 0) return '';
+  const visible = names.slice(0, limit);
+  return `${visible.join(', ')}${names.length > limit ? `, +${names.length - limit} more` : ''}`;
+}
+
+function failureList(files, limit = 5) {
+  const failures = (Array.isArray(files) ? files : []).slice(0, limit).map((file) => {
+    const name = clean(file?.fileName).slice(0, 100) || 'Unknown file';
+    const reason = clean(file?.reason).slice(0, 160) || 'Upload failed.';
+    return `${name} (${reason})`;
+  });
+  return `${failures.join('; ')}${files?.length > limit ? `; +${files.length - limit} more` : ''}`;
+}
+
+function resultMessage(result, { attempt = 1, retrying = false } = {}) {
   if (result?.forbidden) return 'You do not have permission to upload loot logs from Discord.';
   if (result?.ignored) return 'Use `/upload` inside a loot-log thread.';
-  if (result?.previouslyProcessedAttachments && !result?.processedAttachments && !result?.skippedAttachments) {
-    return 'No new `.csv` loot logs were found. Previously uploaded files were skipped.';
-  }
   if (!result?.processedAttachments && !result?.skippedAttachments) {
+    if (result?.previouslyProcessedAttachments) {
+      return `No new loot logs were uploaded. Already processed: ${fileList(result.previouslyProcessedFiles) || `${result.previouslyProcessedAttachments} file(s)`}.`;
+    }
     return 'No `.csv` loot logs were found in this thread.';
   }
-  if (result?.skippedAttachments) {
-    return `Uploaded ${result.processedAttachments || 0} loot log(s); ${result.skippedAttachments} failed.`;
+
+  const lines = [];
+  if (result?.processedAttachments) {
+    lines.push(`Uploaded ${result.processedAttachments} loot log(s): ${fileList(result.processedFiles) || 'complete'}.`);
   }
-  return `Uploaded ${result.processedAttachments || 0} loot log(s) successfully.`;
+  if (result?.previouslyProcessedAttachments) {
+    lines.push(`Already processed ${result.previouslyProcessedAttachments}: ${fileList(result.previouslyProcessedFiles)}.`);
+  }
+  if (result?.skippedAttachments) {
+    lines.push(`Failed ${result.skippedAttachments}: ${failureList(result.failedFiles)}.`);
+    if (retrying) lines.push(`Retrying failed files automatically (attempt ${attempt} of 3).`);
+    else if (attempt >= 3) lines.push('Upload stopped after 3 attempts. Run `/upload` again if the files are corrected.');
+  }
+  return lines.join('\n');
 }
 
 async function editOriginalInteraction(rest, interaction, content) {
@@ -225,7 +253,7 @@ export async function processUploadInteraction(interaction, env, dependencies = 
   try {
     if (clean(interaction.guild_id) !== guildId) {
       await editOriginalInteraction(rest, interaction, 'This command is not available in this server.');
-      return;
+      return { accepted: false, ignored: true, processedAttachments: 0, skippedAttachments: 0 };
     }
 
     const channel = await rest.get(Routes.channel(interaction.channel_id));
@@ -237,7 +265,7 @@ export async function processUploadInteraction(interaction, env, dependencies = 
     };
     if (thread.parentId !== channelId) {
       await editOriginalInteraction(rest, interaction, 'Use `/upload` inside a loot-log thread.');
-      return;
+      return { accepted: false, ignored: true, processedAttachments: 0, skippedAttachments: 0 };
     }
 
     const messages = await fetchThreadMessages(rest, thread.id);
@@ -250,10 +278,58 @@ export async function processUploadInteraction(interaction, env, dependencies = 
       runtimeEnv: env,
       thread,
     });
-    await editOriginalInteraction(rest, interaction, resultMessage(result));
+    await editOriginalInteraction(rest, interaction, resultMessage(result, dependencies.resultMessageOptions));
+    return result;
   } catch (error) {
     console.error('[militant-discord-interactions] Upload command failed.', error);
     await editOriginalInteraction(rest, interaction, 'The upload failed. Please try again.').catch(() => {});
+    throw error;
+  }
+}
+
+export async function handleUploadQueue(batch, env, dependencies = {}) {
+  for (const message of batch.messages) {
+    const interaction = message.body?.interaction;
+    const attempt = Math.max(1, Number(message.attempts) || 1);
+
+    try {
+      const result = await processUploadInteraction(interaction, env, {
+        ...dependencies,
+        resultMessageOptions: { attempt, retrying: attempt < 3 },
+      });
+      if (result?.skippedAttachments) {
+        if (attempt < 3) {
+          const rest = dependencies.rest
+            || new (dependencies.RestClass || REST)({ version: '10' }).setToken(requiredEnv(env, 'DISCORD_BOT_TOKEN'));
+          await editOriginalInteraction(rest, interaction, resultMessage(result, { attempt, retrying: true }));
+          message.retry({ delaySeconds: 5 });
+        } else {
+          message.ack();
+        }
+      } else {
+        message.ack();
+      }
+    } catch (error) {
+      if (attempt < 3) {
+        const rest = dependencies.rest
+          || new (dependencies.RestClass || REST)({ version: '10' }).setToken(requiredEnv(env, 'DISCORD_BOT_TOKEN'));
+        await editOriginalInteraction(
+          rest,
+          interaction,
+          `The upload hit an unexpected error. Retrying automatically (attempt ${attempt} of 3).`,
+        ).catch(() => {});
+        message.retry({ delaySeconds: 5 });
+      } else {
+        const rest = dependencies.rest
+          || new (dependencies.RestClass || REST)({ version: '10' }).setToken(requiredEnv(env, 'DISCORD_BOT_TOKEN'));
+        await editOriginalInteraction(
+          rest,
+          interaction,
+          'The upload failed after 3 attempts. Run `/upload` again if the files are corrected.',
+        ).catch(() => {});
+        message.ack();
+      }
+    }
   }
 }
 
@@ -294,11 +370,17 @@ export async function handleInteractionRequest(request, env, context, dependenci
     });
   }
 
-  context.waitUntil(processUploadInteraction(interaction, env, dependencies));
+  if (env.LOOT_UPLOAD_QUEUE?.send) {
+    await env.LOOT_UPLOAD_QUEUE.send({ interaction });
+  } else {
+    context.waitUntil(processUploadInteraction(interaction, env, dependencies));
+  }
   return jsonResponse({
     data: {
       allowed_mentions: { parse: [] },
-      content: 'Upload accepted. Processing loot logs...',
+      content: env.LOOT_UPLOAD_QUEUE?.send
+        ? 'Upload queued. Processing loot logs...'
+        : 'Upload accepted. Processing loot logs...',
       flags: MessageFlags.Ephemeral,
     },
     type: InteractionResponseType.ChannelMessageWithSource,
@@ -308,5 +390,8 @@ export async function handleInteractionRequest(request, env, context, dependenci
 export default {
   fetch(request, env, context) {
     return handleInteractionRequest(request, env, context);
+  },
+  queue(batch, env) {
+    return handleUploadQueue(batch, env);
   },
 };

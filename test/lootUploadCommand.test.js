@@ -207,6 +207,7 @@ describe('loot upload command helpers', () => {
     assert.equal(result.accepted, true);
     assert.equal(calls.some((call) => call.url.includes('/functions/v1/loot-logs')), true);
     assert.equal(calls.find((call) => call.url.includes('/functions/v1/loot-logs')).body.originalFileName, '04 CTA Uploads');
+    assert.equal(calls.find((call) => call.url.includes('/functions/v1/loot-logs')).body.discordAttachmentId, 'loot-1');
     const actionLog = calls.find((call) => call.url.includes('webapp_action_logs'));
     assert.equal(actionLog.body.actor_name, 'Onslawht');
     assert.equal(actionLog.body.details.uploadedBy, 'Chapper');
@@ -266,5 +267,40 @@ describe('loot upload command helpers', () => {
     assert.equal(result.previouslyProcessedAttachments, 1);
     assert.equal(result.processedAttachments, 1);
     assert.equal(result.skippedAttachments, 0);
+    assert.deepEqual(result.previouslyProcessedFiles, ['old.csv']);
+    assert.deepEqual(result.processedFiles, ['new.csv']);
+  });
+
+  it('returns file-level failures so queued uploads can retry them', async () => {
+    process.env.SUPABASE_URL = 'https://supabase.test';
+    process.env.SUPABASE_SERVICE_ROLE_KEY = 'service-role';
+    const failedMessage = createMessage({
+      attachment: createAttachment('loot-failed', 'failed.csv'),
+      id: 'message-failed',
+    });
+
+    globalThis.fetch = mock.fn(async (url, options = {}) => {
+      const value = String(url);
+      if (value.includes('webapp_permission_settings')) {
+        return mockJsonResponse([{ settings: { roles: [{ permissions: { uploadLootLogsFromDiscord: true }, roleId: 'role-logger' }] } }]);
+      }
+      if (value.includes('discord_loot_threads') && !options.body) return mockJsonResponse([]);
+      if (value.includes('discord_loot_attachments') && !options.body) return mockJsonResponse([]);
+      return mockJsonResponse([]);
+    });
+
+    const result = await processLootUploadThread({
+      actorMember: { id: 'user-1', roles: ['role-logger'] },
+      fetchAttachmentTextFn: async () => { throw new Error('Discord download timed out.'); },
+      messages: [failedMessage],
+      thread: createThread([failedMessage]),
+    });
+
+    assert.equal(result.processedAttachments, 0);
+    assert.equal(result.skippedAttachments, 1);
+    assert.deepEqual(result.failedFiles, [{
+      fileName: 'failed.csv',
+      reason: 'Discord download timed out.',
+    }]);
   });
 });

@@ -12,5 +12,22 @@
   },
   "observability": {
     "enabled": true
+  },
+  "queues": {
+    "producers": [
+      {
+        "binding": "LOOT_UPLOAD_QUEUE",
+        "queue": "militant-loot-uploads"
+      }
+    ],
+    "consumers": [
+      {
+        "queue": "militant-loot-uploads",
+        "max_batch_size": 1,
+        "max_batch_timeout": 1,
+        "max_retries": 2,
+        "retry_delay": 5
+      }
+    ]
   }
 }

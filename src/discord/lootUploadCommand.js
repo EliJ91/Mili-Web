@@ -164,11 +164,12 @@ async function supabaseRest(path, { body = null, method = 'GET', prefer = 'retur
   return data;
 }
 
-async function submitLootLog({ bundleId, lootLogText, originalFileName, runtimeEnv = process.env, username }) {
+async function submitLootLog({ bundleId, discordAttachmentId, lootLogText, originalFileName, runtimeEnv = process.env, username }) {
   const { serviceRoleKey, supabaseUrl } = requireSupabaseConfig(runtimeEnv);
   const response = await fetch(`${supabaseUrl}/functions/v1/loot-logs`, {
     body: JSON.stringify({
       bundleId,
+      discordAttachmentId,
       lootLogText,
       originalFileName,
       username,
@@ -238,40 +239,18 @@ async function loadThreadRecord(thread, runtimeEnv = process.env) {
   return rows?.[0] || null;
 }
 
-async function loadProcessedAttachmentIds(thread, runtimeEnv = process.env) {
+async function loadProcessedAttachmentState(thread, runtimeEnv = process.env) {
   const rows = await supabaseRest(
-    `discord_loot_attachments?thread_id=eq.${encodeURIComponent(thread.id)}&select=attachment_id`,
+    `discord_loot_attachments?thread_id=eq.${encodeURIComponent(thread.id)}&select=attachment_id,bundle_id`,
     { runtimeEnv },
   );
-  return new Set((rows || []).map((row) => clean(row.attachment_id)).filter(Boolean));
+  return {
+    bundleId: clean((rows || []).find((row) => clean(row.bundle_id))?.bundle_id),
+    ids: new Set((rows || []).map((row) => clean(row.attachment_id)).filter(Boolean)),
+  };
 }
 
 async function saveThreadBundle(thread, bundleId, processedAttachmentIds = [], runtimeEnv = process.env) {
-  const bundleRows = await supabaseRest(
-    `loot_log_bundles?id=eq.${encodeURIComponent(bundleId)}&select=combined_loot_summary`,
-    { runtimeEnv },
-  );
-  const currentSummary = bundleRows?.[0]?.combined_loot_summary || {};
-  const nextSummary = {
-    ...currentSummary,
-    discordChannelId: thread.parentId,
-    discordProcessedAttachmentIds: [
-      ...new Set([
-        ...(Array.isArray(currentSummary.discordProcessedAttachmentIds)
-          ? currentSummary.discordProcessedAttachmentIds
-          : []),
-        ...processedAttachmentIds,
-      ].map(clean).filter(Boolean)),
-    ],
-    discordThreadId: thread.id,
-    discordThreadName: clean(thread.name),
-  };
-
-  await supabaseRest(`loot_log_bundles?id=eq.${encodeURIComponent(bundleId)}`, {
-    body: { combined_loot_summary: nextSummary, updated_at: new Date().toISOString() },
-    method: 'PATCH',
-    runtimeEnv,
-  });
   await supabaseRest('discord_loot_threads?on_conflict=thread_id', {
     body: {
       bundle_id: bundleId,
@@ -284,6 +263,36 @@ async function saveThreadBundle(thread, bundleId, processedAttachmentIds = [], r
     prefer: 'resolution=merge-duplicates,return=representation',
     runtimeEnv,
   });
+
+  try {
+    const bundleRows = await supabaseRest(
+      `loot_log_bundles?id=eq.${encodeURIComponent(bundleId)}&select=combined_loot_summary`,
+      { runtimeEnv },
+    );
+    const currentSummary = bundleRows?.[0]?.combined_loot_summary || {};
+    const nextSummary = {
+      ...currentSummary,
+      discordChannelId: thread.parentId,
+      discordProcessedAttachmentIds: [
+        ...new Set([
+          ...(Array.isArray(currentSummary.discordProcessedAttachmentIds)
+            ? currentSummary.discordProcessedAttachmentIds
+            : []),
+          ...processedAttachmentIds,
+        ].map(clean).filter(Boolean)),
+      ],
+      discordThreadId: thread.id,
+      discordThreadName: clean(thread.name),
+    };
+
+    await supabaseRest(`loot_log_bundles?id=eq.${encodeURIComponent(bundleId)}`, {
+      body: { combined_loot_summary: nextSummary, updated_at: new Date().toISOString() },
+      method: 'PATCH',
+      runtimeEnv,
+    });
+  } catch (error) {
+    console.warn('[mili-discord-worker] Could not update Discord attachment summary.', error.message || error);
+  }
 }
 
 async function markAttachmentProcessed({ bundleId, job, runtimeEnv = process.env, submittedBy, thread }) {
@@ -327,35 +336,63 @@ export async function processLootUploadThread({
     return { accepted: true, bundleId: null, processedAttachments: 0, skippedAttachments: 0 };
   }
 
-  const [threadRecord, processedAttachmentIds] = await Promise.all([
+  const [threadRecord, processedAttachmentState] = await Promise.all([
     loadThreadRecord(thread, runtimeEnv),
-    loadProcessedAttachmentIds(thread, runtimeEnv),
+    loadProcessedAttachmentState(thread, runtimeEnv),
   ]);
+  const processedAttachmentIds = processedAttachmentState.ids;
   const newJobs = jobs.filter((job) => !processedAttachmentIds.has(job.attachmentId));
+  const previouslyProcessedFiles = jobs
+    .filter((job) => processedAttachmentIds.has(job.attachmentId))
+    .map((job) => job.fileName);
   const previouslyProcessedAttachments = jobs.length - newJobs.length;
   if (newJobs.length === 0) {
     return {
       accepted: true,
       bundleId: threadRecord?.bundle_id || null,
       previouslyProcessedAttachments,
+      previouslyProcessedFiles,
       processedAttachments: 0,
+      processedFiles: [],
       skippedAttachments: 0,
+      failedFiles: [],
     };
   }
 
-  const preparedJobs = applyCtaTimerToLootLogs(await Promise.all(newJobs.map(async (job) => ({
-    ...job,
-    lootLogText: await fetchAttachmentTextFn(job.attachment),
-    submittedBy: clean(await getMessageDisplayName(job.message)) || 'Unknown Server Member',
-  }))), ctaTimer);
-  let bundleId = threadRecord?.bundle_id || null;
+  const downloadResults = await Promise.all(newJobs.map(async (job) => {
+    try {
+      return {
+        job: {
+          ...job,
+          lootLogText: await fetchAttachmentTextFn(job.attachment),
+          submittedBy: clean(await getMessageDisplayName(job.message)) || 'Unknown Server Member',
+        },
+      };
+    } catch (error) {
+      return { error, job };
+    }
+  }));
+  const downloadedJobs = downloadResults.filter((result) => result.job?.lootLogText).map((result) => result.job);
+  const failedFiles = downloadResults
+    .filter((result) => result.error)
+    .map((result) => ({ fileName: result.job.fileName, reason: clean(result.error?.message) || 'Download failed.' }));
+  const preparedJobs = applyCtaTimerToLootLogs(downloadedJobs, ctaTimer);
+  const preparedAttachmentIds = new Set(preparedJobs.map((job) => job.attachmentId));
+  downloadedJobs
+    .filter((job) => !preparedAttachmentIds.has(job.attachmentId))
+    .forEach((job) => failedFiles.push({
+      fileName: job.fileName,
+      reason: 'No valid loot events remained after applying the CTA Timer.',
+    }));
+  let bundleId = threadRecord?.bundle_id || processedAttachmentState.bundleId || null;
   let processedAttachments = 0;
-  let skippedAttachments = 0;
+  const processedFiles = [];
 
   for (const job of preparedJobs) {
     try {
       const result = await submitLootLog({
         bundleId,
+        discordAttachmentId: job.attachmentId,
         lootLogText: job.lootLogText,
         originalFileName: clean(thread.name) || job.fileName,
         runtimeEnv,
@@ -375,17 +412,23 @@ export async function processLootUploadThread({
         uploadedBy: job.submittedBy,
       });
       processedAttachments += 1;
+      processedFiles.push(job.fileName);
     } catch (error) {
-      skippedAttachments += 1;
+      failedFiles.push({ fileName: job.fileName, reason: clean(error?.message) || 'Upload failed.' });
       console.error(`[mili-discord-worker] Could not upload ${job.fileName}.`, error);
     }
   }
 
+  const skippedAttachments = failedFiles.length;
+
   return {
     accepted: skippedAttachments === 0,
     bundleId,
+    failedFiles,
     previouslyProcessedAttachments,
+    previouslyProcessedFiles,
     processedAttachments,
+    processedFiles,
     skippedAttachments,
   };
 }

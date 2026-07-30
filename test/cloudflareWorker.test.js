@@ -9,6 +9,7 @@ import {
   handleInteractionRequest,
   handleLootLogShareRequest,
   handleMemberLookupRequest,
+  handleUploadQueue,
   processUploadInteraction,
 } from '../src/cloudflare/worker.js';
 
@@ -148,6 +149,61 @@ describe('Cloudflare Discord interaction worker', () => {
     assert.equal(processThread.mock.callCount(), 1);
     assert.equal(rest.patch.mock.callCount(), 1);
     assert.match(rest.patch.mock.calls[0].arguments[1].body.content, /2 loot log/);
+  });
+
+  it('queues upload work when the durable queue binding is available', async () => {
+    const queue = { send: mock.fn(async () => ({})) };
+    const request = new Request('https://worker.test/', {
+      body: JSON.stringify(interaction()),
+      headers: {
+        'x-signature-ed25519': 'signature',
+        'x-signature-timestamp': 'timestamp',
+      },
+      method: 'POST',
+    });
+    const response = await handleInteractionRequest(request, { ...env, LOOT_UPLOAD_QUEUE: queue }, {
+      waitUntil() { throw new Error('waitUntil should not be used when the queue is bound.'); },
+    }, {
+      verify: async () => true,
+    });
+
+    assert.equal(queue.send.mock.callCount(), 1);
+    assert.deepEqual(queue.send.mock.calls[0].arguments[0], { interaction: interaction() });
+    assert.match((await response.json()).data.content, /Upload queued/);
+  });
+
+  it('retries failed queued files automatically and reports their names', async () => {
+    const patch = mock.fn(async () => ({}));
+    const message = {
+      ack: mock.fn(),
+      attempts: 1,
+      body: { interaction: interaction() },
+      retry: mock.fn(),
+    };
+    const processThread = mock.fn(async () => ({
+      failedFiles: [{ fileName: 'third.csv', reason: 'Timed out.' }],
+      previouslyProcessedAttachments: 2,
+      previouslyProcessedFiles: ['first.csv', 'second.csv'],
+      processedAttachments: 0,
+      processedFiles: [],
+      skippedAttachments: 1,
+    }));
+    const rest = {
+      get: mock.fn(async (route) => (route.includes('/messages') ? [] : {
+        id: 'thread-1', name: '02 CTA', parent_id: 'parent-1', type: 11,
+      })),
+      patch,
+    };
+
+    await handleUploadQueue({ messages: [message] }, env, { processThread, rest });
+
+    assert.equal(message.retry.mock.callCount(), 1);
+    assert.deepEqual(message.retry.mock.calls[0].arguments[0], { delaySeconds: 5 });
+    assert.equal(message.ack.mock.callCount(), 0);
+    const notification = patch.mock.calls.at(-1).arguments[1].body.content;
+    assert.match(notification, /Already processed 2: first\.csv, second\.csv/);
+    assert.match(notification, /Failed 1: third\.csv/);
+    assert.match(notification, /attempt 1 of 3/);
   });
 
   it('passes the command nickname, roles, and thread messages into the existing upload service', async () => {
