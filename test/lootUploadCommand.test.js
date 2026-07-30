@@ -211,4 +211,60 @@ describe('loot upload command helpers', () => {
     assert.equal(actionLog.body.actor_name, 'Onslawht');
     assert.equal(actionLog.body.details.uploadedBy, 'Chapper');
   });
+
+  it('uploads only new attachments when the command is used again in the same thread', async () => {
+    process.env.SUPABASE_URL = 'https://supabase.test';
+    process.env.SUPABASE_SERVICE_ROLE_KEY = 'service-role';
+    const oldMessage = createMessage({
+      attachment: createAttachment('loot-old', 'old.csv'),
+      id: 'message-old',
+      timestamp: 100,
+    });
+    const newMessage = createMessage({
+      attachment: createAttachment('loot-new', 'new.csv'),
+      id: 'message-new',
+      timestamp: 200,
+    });
+    const fetchedAttachments = [];
+    const submittedFiles = [];
+
+    globalThis.fetch = mock.fn(async (url, options = {}) => {
+      const value = String(url);
+      if (value.includes('webapp_permission_settings')) {
+        return mockJsonResponse([{ settings: { roles: [{ permissions: { uploadLootLogsFromDiscord: true }, roleId: 'role-logger' }] } }]);
+      }
+      if (value.includes('discord_loot_threads') && !options.body) {
+        return mockJsonResponse([{ bundle_id: 'bundle-1', thread_id: 'thread-1' }]);
+      }
+      if (value.includes('discord_loot_attachments') && !options.body) {
+        return mockJsonResponse([{ attachment_id: 'loot-old' }]);
+      }
+      if (value.includes('/functions/v1/loot-logs')) {
+        submittedFiles.push(JSON.parse(options.body).lootLogText);
+        return { json: async () => ({ bundleId: 'bundle-1' }), ok: true };
+      }
+      if (value.includes('loot_log_bundles') && !options.body) {
+        return mockJsonResponse([{ combined_loot_summary: { discordProcessedAttachmentIds: ['loot-old'] } }]);
+      }
+      return mockJsonResponse([{ id: 'ok' }]);
+    });
+
+    const result = await processLootUploadThread({
+      actorMember: { id: 'user-1', roles: ['role-logger'] },
+      actorName: 'Onslawht',
+      fetchAttachmentTextFn: async (attachment) => {
+        fetchedAttachments.push(attachment.id);
+        return `timestamp_utc;looted_by__name;item_id;item_name;quantity\n2026-07-12T04:00:00.000Z;Onslawht;T4_RUNE;Adept's Rune;1`;
+      },
+      getMessageDisplayName: async () => 'Chapper',
+      messages: [oldMessage, newMessage],
+      thread: createThread([oldMessage, newMessage]),
+    });
+
+    assert.deepEqual(fetchedAttachments, ['loot-new']);
+    assert.equal(submittedFiles.length, 1);
+    assert.equal(result.previouslyProcessedAttachments, 1);
+    assert.equal(result.processedAttachments, 1);
+    assert.equal(result.skippedAttachments, 0);
+  });
 });

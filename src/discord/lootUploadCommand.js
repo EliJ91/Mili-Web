@@ -238,6 +238,14 @@ async function loadThreadRecord(thread, runtimeEnv = process.env) {
   return rows?.[0] || null;
 }
 
+async function loadProcessedAttachmentIds(thread, runtimeEnv = process.env) {
+  const rows = await supabaseRest(
+    `discord_loot_attachments?thread_id=eq.${encodeURIComponent(thread.id)}&select=attachment_id`,
+    { runtimeEnv },
+  );
+  return new Set((rows || []).map((row) => clean(row.attachment_id)).filter(Boolean));
+}
+
 async function saveThreadBundle(thread, bundleId, processedAttachmentIds = [], runtimeEnv = process.env) {
   const bundleRows = await supabaseRest(
     `loot_log_bundles?id=eq.${encodeURIComponent(bundleId)}&select=combined_loot_summary`,
@@ -319,12 +327,27 @@ export async function processLootUploadThread({
     return { accepted: true, bundleId: null, processedAttachments: 0, skippedAttachments: 0 };
   }
 
-  const preparedJobs = applyCtaTimerToLootLogs(await Promise.all(jobs.map(async (job) => ({
+  const [threadRecord, processedAttachmentIds] = await Promise.all([
+    loadThreadRecord(thread, runtimeEnv),
+    loadProcessedAttachmentIds(thread, runtimeEnv),
+  ]);
+  const newJobs = jobs.filter((job) => !processedAttachmentIds.has(job.attachmentId));
+  const previouslyProcessedAttachments = jobs.length - newJobs.length;
+  if (newJobs.length === 0) {
+    return {
+      accepted: true,
+      bundleId: threadRecord?.bundle_id || null,
+      previouslyProcessedAttachments,
+      processedAttachments: 0,
+      skippedAttachments: 0,
+    };
+  }
+
+  const preparedJobs = applyCtaTimerToLootLogs(await Promise.all(newJobs.map(async (job) => ({
     ...job,
     lootLogText: await fetchAttachmentTextFn(job.attachment),
     submittedBy: clean(await getMessageDisplayName(job.message)) || 'Unknown Server Member',
   }))), ctaTimer);
-  const threadRecord = await loadThreadRecord(thread, runtimeEnv);
   let bundleId = threadRecord?.bundle_id || null;
   let processedAttachments = 0;
   let skippedAttachments = 0;
@@ -361,6 +384,7 @@ export async function processLootUploadThread({
   return {
     accepted: skippedAttachments === 0,
     bundleId,
+    previouslyProcessedAttachments,
     processedAttachments,
     skippedAttachments,
   };
