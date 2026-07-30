@@ -168,4 +168,68 @@ describe('Cloudflare Discord interaction worker', () => {
     assert.equal(options.ctaTimer, '02');
     assert.equal(options.thread.name, '02 CTA');
   });
+
+  it('uses Discord server-visible names when no custom nickname is set', async () => {
+    let postedBy = '';
+    const processThread = mock.fn(async (options) => {
+      postedBy = await options.getMessageDisplayName(options.messages[0]);
+      return { processedAttachments: 1, skippedAttachments: 0 };
+    });
+    const rest = {
+      get: mock.fn(async (route) => {
+        if (route.includes('/messages')) {
+          return [{
+            attachments: [{ filename: 'zikeman.csv', id: 'attachment-1' }],
+            author: { global_name: 'Zikeman', id: 'user-zikeman', username: 'account-name' },
+            id: 'message-1',
+            member: { nick: null },
+            timestamp: '2026-07-30T02:00:00Z',
+          }];
+        }
+        return { id: 'thread-1', name: '02 CTA', parent_id: 'parent-1', type: 11 };
+      }),
+      patch: mock.fn(async () => ({})),
+    };
+    const command = interaction({
+      member: {
+        roles: ['role-1'],
+        user: { global_name: 'Zikeman', id: 'user-zikeman', username: 'account-name' },
+      },
+    });
+
+    await processUploadInteraction(command, env, { processThread, rest });
+
+    assert.equal(processThread.mock.calls[0].arguments[0].actorName, 'Zikeman');
+    assert.equal(postedBy, 'Zikeman');
+  });
+
+  it('never substitutes the Discord account username for a server-visible name', async () => {
+    let postedBy = '';
+    const processThread = mock.fn(async (options) => {
+      postedBy = await options.getMessageDisplayName(options.messages[0]);
+      return { processedAttachments: 1, skippedAttachments: 0 };
+    });
+    const rest = {
+      get: mock.fn(async (route) => {
+        if (route.includes('/messages')) {
+          return [{
+            attachments: [{ filename: 'loot.csv', id: 'attachment-1' }],
+            author: { global_name: null, id: 'user-1', username: 'ActualDiscordUsername' },
+            id: 'message-1',
+            member: { nick: null },
+            timestamp: '2026-07-30T02:00:00Z',
+          }];
+        }
+        return { id: 'thread-1', name: '02 CTA', parent_id: 'parent-1', type: 11 };
+      }),
+      patch: mock.fn(async () => ({})),
+    };
+
+    await processUploadInteraction(interaction({
+      member: { roles: ['role-1'], user: { id: 'user-1', username: 'ActualDiscordUsername' } },
+    }), env, { processThread, rest });
+
+    assert.equal(processThread.mock.calls[0].arguments[0].actorName, 'Unknown Server Member');
+    assert.equal(postedBy, 'Unknown Server Member');
+  });
 });

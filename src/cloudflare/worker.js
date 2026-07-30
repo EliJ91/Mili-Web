@@ -161,25 +161,13 @@ async function fetchThreadMessages(rest, threadId) {
   return messages;
 }
 
-function createDisplayNameResolver(rest, guildId) {
-  const memberNames = new Map();
-
+function createDisplayNameResolver() {
   return async (message) => {
-    const userId = clean(message?.author?.id);
-    const inlineNickname = clean(message?.member?.nick || message?.member?.nickname);
-    if (inlineNickname) return inlineNickname;
-    if (!userId) return 'Unknown Server Member';
-    if (memberNames.has(userId)) return memberNames.get(userId);
-
-    try {
-      const member = await rest.get(Routes.guildMember(guildId, userId));
-      const nickname = clean(member?.nick) || 'Unknown Server Member';
-      memberNames.set(userId, nickname);
-      return nickname;
-    } catch {
-      memberNames.set(userId, 'Unknown Server Member');
-      return 'Unknown Server Member';
-    }
+    return clean(
+      message?.member?.nick
+      || message?.member?.nickname
+      || message?.author?.global_name,
+    ) || 'Unknown Server Member';
   };
 }
 
@@ -194,20 +182,12 @@ function commandOption(interaction, name) {
   return interaction?.data?.options?.find((option) => option?.name === name)?.value;
 }
 
-async function actorNickname(rest, interaction) {
-  const inlineNickname = clean(interaction?.member?.nick);
-  if (inlineNickname) return inlineNickname;
-
-  const guildId = clean(interaction?.guild_id);
-  const userId = clean(interaction?.member?.user?.id || interaction?.user?.id);
-  if (!guildId || !userId) return 'Unknown Server Member';
-
-  try {
-    const member = await rest.get(Routes.guildMember(guildId, userId));
-    return clean(member?.nick) || 'Unknown Server Member';
-  } catch {
-    return 'Unknown Server Member';
-  }
+function actorNickname(interaction) {
+  return clean(
+    interaction?.member?.nick
+    || interaction?.member?.user?.global_name
+    || interaction?.user?.global_name,
+  ) || 'Unknown Server Member';
 }
 
 function resultMessage(result) {
@@ -263,9 +243,9 @@ export async function processUploadInteraction(interaction, env, dependencies = 
     const messages = await fetchThreadMessages(rest, thread.id);
     const result = await processThread({
       actorMember: actorMember(interaction),
-      actorName: await actorNickname(rest, interaction),
+      actorName: actorNickname(interaction),
       ctaTimer: clean(commandOption(interaction, 'cta_timer')) || '00',
-      getMessageDisplayName: createDisplayNameResolver(rest, guildId),
+      getMessageDisplayName: createDisplayNameResolver(),
       messages,
       runtimeEnv: env,
       thread,
