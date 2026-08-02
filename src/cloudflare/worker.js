@@ -111,7 +111,7 @@ function bearerToken(request) {
 }
 
 function formatMember(guildId, userId, member) {
-  const guildNickname = normalizeDisplayName(member?.nick || member?.user?.global_name || member?.user?.username);
+  const guildNickname = normalizeDisplayName(member?.nick) || 'Unknown Server Member';
   return {
     discordGuildId: guildId,
     discordUserId: userId,
@@ -165,13 +165,26 @@ async function fetchThreadMessages(rest, threadId) {
   return messages;
 }
 
-function createDisplayNameResolver() {
+function createDisplayNameResolver(rest, guildId) {
+  const nicknameCache = new Map();
+
   return async (message) => {
-    return normalizeDisplayName(
-      message?.member?.nick
-      || message?.member?.nickname
-      || message?.author?.global_name,
-    ) || 'Unknown Server Member';
+    const userId = clean(message?.author?.id || message?.member?.user?.id);
+    if (userId && nicknameCache.has(userId)) return nicknameCache.get(userId);
+
+    let nickname = normalizeDisplayName(message?.member?.nick || message?.member?.nickname);
+    if (userId) {
+      try {
+        const member = await rest.get(Routes.guildMember(guildId, userId));
+        nickname = normalizeDisplayName(member?.nick) || nickname;
+      } catch (error) {
+        console.warn(`[militant-discord-interactions] Could not resolve nickname for ${userId}.`, error);
+      }
+    }
+
+    const resolved = nickname || 'Unknown Server Member';
+    if (userId) nicknameCache.set(userId, resolved);
+    return resolved;
   };
 }
 
@@ -186,12 +199,19 @@ function commandOption(interaction, name) {
   return interaction?.data?.options?.find((option) => option?.name === name)?.value;
 }
 
-function actorNickname(interaction) {
-  return normalizeDisplayName(
-    interaction?.member?.nick
-    || interaction?.member?.user?.global_name
-    || interaction?.user?.global_name,
-  ) || 'Unknown Server Member';
+async function actorNickname(rest, guildId, interaction) {
+  const interactionNickname = normalizeDisplayName(interaction?.member?.nick);
+  if (interactionNickname) return interactionNickname;
+
+  const userId = clean(interaction?.member?.user?.id || interaction?.user?.id);
+  if (!userId) return 'Unknown Server Member';
+  try {
+    const member = await rest.get(Routes.guildMember(guildId, userId));
+    return normalizeDisplayName(member?.nick) || 'Unknown Server Member';
+  } catch (error) {
+    console.warn(`[militant-discord-interactions] Could not resolve command nickname for ${userId}.`, error);
+    return 'Unknown Server Member';
+  }
 }
 
 function fileList(files, limit = 8) {
@@ -275,9 +295,9 @@ export async function processUploadInteraction(interaction, env, dependencies = 
     const messages = await fetchThreadMessages(rest, thread.id);
     const result = await processThread({
       actorMember: actorMember(interaction),
-      actorName: actorNickname(interaction),
+      actorName: await actorNickname(rest, guildId, interaction),
       ctaTimer: clean(commandOption(interaction, 'cta_timer')) || '00',
-      getMessageDisplayName: createDisplayNameResolver(),
+      getMessageDisplayName: createDisplayNameResolver(rest, guildId),
       messages,
       runtimeEnv: env,
       thread,

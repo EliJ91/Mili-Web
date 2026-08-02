@@ -225,7 +225,7 @@ describe('Cloudflare Discord interaction worker', () => {
     assert.equal(options.thread.name, '02 CTA');
   });
 
-  it('uses Discord server-visible names when no custom nickname is set', async () => {
+  it('fetches the current server nickname for each attachment author', async () => {
     let postedBy = '';
     const processThread = mock.fn(async (options) => {
       postedBy = await options.getMessageDisplayName(options.messages[0]);
@@ -242,12 +242,14 @@ describe('Cloudflare Discord interaction worker', () => {
             timestamp: '2026-07-30T02:00:00Z',
           }];
         }
+        if (route.includes('/members/user-zikeman')) return { nick: 'Zikeman Server Nickname' };
         return { id: 'thread-1', name: '02 CTA', parent_id: 'parent-1', type: 11 };
       }),
       patch: mock.fn(async () => ({})),
     };
     const command = interaction({
       member: {
+        nick: 'Zikeman Server Nickname',
         roles: ['role-1'],
         user: { global_name: 'Zikeman', id: 'user-zikeman', username: 'account-name' },
       },
@@ -255,8 +257,8 @@ describe('Cloudflare Discord interaction worker', () => {
 
     await processUploadInteraction(command, env, { processThread, rest });
 
-    assert.equal(processThread.mock.calls[0].arguments[0].actorName, 'Zikeman');
-    assert.equal(postedBy, 'Zikeman');
+    assert.equal(processThread.mock.calls[0].arguments[0].actorName, 'Zikeman Server Nickname');
+    assert.equal(postedBy, 'Zikeman Server Nickname');
   });
 
   it('normalizes decorative Discord display names before upload', async () => {
@@ -276,12 +278,14 @@ describe('Cloudflare Discord interaction worker', () => {
             timestamp: '2026-07-30T02:00:00Z',
           }];
         }
+        if (route.includes('/members/user-mark')) return { nick: '\u{1D440}\u{1D44E}\u{1D45F}\u{1D458}' };
         return { id: 'thread-1', name: '02 CTA', parent_id: 'parent-1', type: 11 };
       }),
       patch: mock.fn(async () => ({})),
     };
     const command = interaction({
       member: {
+        nick: '\u{1D440}\u{1D44E}\u{1D45F}\u{1D458}',
         roles: ['role-1'],
         user: { global_name: '\u{1D440}\u{1D44E}\u{1D45F}\u{1D458}', id: 'user-mark' },
       },
@@ -310,13 +314,14 @@ describe('Cloudflare Discord interaction worker', () => {
             timestamp: '2026-07-30T02:00:00Z',
           }];
         }
+        if (route.includes('/members/user-1')) return { nick: null };
         return { id: 'thread-1', name: '02 CTA', parent_id: 'parent-1', type: 11 };
       }),
       patch: mock.fn(async () => ({})),
     };
 
     await processUploadInteraction(interaction({
-      member: { roles: ['role-1'], user: { id: 'user-1', username: 'ActualDiscordUsername' } },
+      member: { nick: null, roles: ['role-1'], user: { id: 'user-1', username: 'ActualDiscordUsername' } },
     }), env, { processThread, rest });
 
     assert.equal(processThread.mock.calls[0].arguments[0].actorName, 'Unknown Server Member');
