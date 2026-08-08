@@ -1,6 +1,8 @@
 export const DEFAULT_BUILD_THREAD_CHANNEL_ID = '1492392003239936010';
 
 const COMPONENT_TYPE_TEXT_DISPLAY = 10;
+const COMPONENT_TYPE_SECTION = 9;
+const COMPONENT_TYPE_THUMBNAIL = 11;
 const COMPONENT_TYPE_MEDIA_GALLERY = 12;
 const COMPONENT_TYPE_CONTAINER = 17;
 const MAX_GALLERY_ITEMS = 10;
@@ -203,7 +205,19 @@ function compactItemImageUrl(value) {
   const imageUrl = clean(value);
   try {
     const url = new URL(imageUrl);
-    if (url.hostname === 'render.albiononline.com') url.searchParams.set('size', '128');
+    if (url.hostname === 'render.albiononline.com') {
+      url.searchParams.set('size', '128');
+    } else if (url.hostname === 'images.weserv.nl') {
+      const sourceValue = clean(url.searchParams.get('url'));
+      if (sourceValue) {
+        const sourceUrl = new URL(/^https?:\/\//i.test(sourceValue) ? sourceValue : `https://${sourceValue}`);
+        if (sourceUrl.hostname === 'render.albiononline.com') sourceUrl.searchParams.set('size', '128');
+        url.searchParams.set('url', sourceUrl.toString().replace(/^https?:\/\//i, ''));
+      }
+      url.searchParams.set('w', '128');
+      url.searchParams.set('h', '128');
+      url.searchParams.set('fit', 'contain');
+    }
     return url.toString();
   } catch {
     return imageUrl;
@@ -229,6 +243,28 @@ function slotCaption(items) {
   return captions.length ? { content: captions.join('  |  '), type: COMPONENT_TYPE_TEXT_DISPLAY } : null;
 }
 
+function slotComponents(items) {
+  const visibleItems = (Array.isArray(items) ? items : [])
+    .filter((item) => /^https:\/\//i.test(clean(item?.imageUrl)))
+    .slice(0, MAX_GALLERY_ITEMS);
+  if (visibleItems.length === 1) {
+    const [item] = visibleItems;
+    return [{
+      accessory: {
+        description: itemDescription(item),
+        media: { url: compactItemImageUrl(item.imageUrl) },
+        type: COMPONENT_TYPE_THUMBNAIL,
+      },
+      components: [{ content: `**${itemDescription(item)}**`, type: COMPONENT_TYPE_TEXT_DISPLAY }],
+      type: COMPONENT_TYPE_SECTION,
+    }];
+  }
+
+  const gallery = slotGallery(visibleItems);
+  const caption = slotCaption(visibleItems);
+  return gallery && caption ? [gallery, caption] : [];
+}
+
 function weaponName(build) {
   const names = [...(build?.slots?.mainHand || []), ...(build?.slots?.offHand || [])]
     .map((item) => clean(item?.name || item?.lookupName))
@@ -246,11 +282,7 @@ export function createBuildResponsePayload(build, rosterNumber) {
     slots.cape,
     slots.foodPots,
   ];
-  const itemRows = rows.flatMap((items) => {
-    const gallery = slotGallery(items);
-    const caption = slotCaption(items);
-    return gallery && caption ? [gallery, caption] : [];
-  });
+  const itemRows = rows.flatMap(slotComponents);
   if (itemRows.length === 0) return null;
 
   const notes = clean(build?.notes);

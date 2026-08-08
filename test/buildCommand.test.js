@@ -155,7 +155,27 @@ describe('/build helpers', () => {
     assert.equal(new URL(payload.components[0].components[1].items[0].media.url).searchParams.get('size'), '128');
     assert.match(payload.components[0].components[2].content, /Lifecurse \(Q1\/W3\/P2\)/);
     assert.match(payload.components[0].components[2].content, /Aegis \(Q1\/W3\/P2\)/);
+    assert.equal(payload.components[0].components[3].type, 9);
+    assert.equal(payload.components[0].components[3].accessory.type, 11);
+    assert.match(payload.components[0].components[3].components[0].content, /Assassin Hood \(Q1\/W3\/P2\)/);
     assert.match(payload.components[0].components.at(-1).content, /Notes/);
     assert.match(payload.components[0].components.at(-1).content, /Hold defensives for the second engage/);
+  });
+
+  it('compacts proxied Albion item images for Discord', () => {
+    const payload = createBuildResponsePayload({
+      role: 'DPS',
+      slots: {
+        mainHand: [{
+          annotation: '(Q2/W1/P4)',
+          imageUrl: 'https://images.weserv.nl/?url=render.albiononline.com%2Fv1%2Fitem%2FT8_MAIN_SPEAR_LANCE_AVALON.png%3Fsize%3D160',
+          name: 'Daybreaker',
+        }],
+      },
+    }, '14');
+
+    const imageUrl = new URL(payload.components[0].components[1].accessory.media.url);
+    assert.equal(imageUrl.searchParams.get('w'), '128');
+    assert.match(imageUrl.searchParams.get('url'), /size=128/);
   });
 });
