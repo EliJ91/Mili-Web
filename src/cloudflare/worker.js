@@ -326,6 +326,10 @@ export async function processBuildInteraction(interaction, env, dependencies = {
     }
 
     const layout = await (dependencies.loadLatestLayoutFn || loadLatestZvZBuildLayout)(env, dependencies.fetchImpl || fetch);
+    if (!layout) {
+      await editOriginalInteractionPayload(rest, interaction, componentsTextPayload('No ZvZ layout saved.'));
+      return { found: false, noLayout: true, rosterNumber };
+    }
     const build = findBuildForRosterNumber(layout, rosterNumber);
     const payload = build ? createBuildResponsePayload(build, rosterNumber) : null;
     if (!payload) {

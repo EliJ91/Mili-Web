@@ -249,6 +249,24 @@ describe('Cloudflare Discord interaction worker', () => {
     assert.equal(rest.patch.mock.calls[0].arguments[1].body.components[0].content, 'Not signed up.');
   });
 
+  it('reports when no ZVZ layout has been saved', async () => {
+    const rest = {
+      get: mock.fn(async () => ({
+        id: 'thread-1', name: 'CTA signup', parent_id: 'build-parent-1', type: 11,
+      })),
+      patch: mock.fn(async () => ({})),
+    };
+
+    const result = await processBuildInteraction(interaction({ data: { name: 'build' } }), env, {
+      fetchThreadMessagesFn: async () => [{ content: '2. <@user-1>', timestamp: '2026-08-08T12:00:00Z' }],
+      loadLatestLayoutFn: async () => null,
+      rest,
+    });
+
+    assert.equal(result.noLayout, true);
+    assert.equal(rest.patch.mock.calls[0].arguments[1].body.components[0].content, 'No ZvZ layout saved.');
+  });
+
   it('rejects build lookups outside the configured signup thread channel', async () => {
     const rest = {
       get: mock.fn(async () => ({
