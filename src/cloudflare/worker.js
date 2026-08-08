@@ -10,6 +10,14 @@ import {
   DEFAULT_LOOT_LOG_THREAD_CHANNEL_ID,
   processLootUploadThread,
 } from '../discord/lootUploadCommand.js';
+import {
+  createBuildResponsePayload,
+  DEFAULT_BUILD_THREAD_CHANNEL_ID,
+  findBuildForRosterNumber,
+  findSignupRosterNumber,
+  loadLatestZvZBuildLayout,
+} from '../discord/buildCommand.js';
+import { createApplicationCommands } from '../discord/applicationCommands.js';
 
 const DEFAULT_GUILD_ID = '805908199541702666';
 const MAX_MESSAGES_PER_THREAD = 500;
@@ -188,6 +196,20 @@ function createDisplayNameResolver(rest, guildId) {
   };
 }
 
+export async function handleCommandRegistrationRequest(request, env, dependencies = {}) {
+  if (request.method !== 'POST') return jsonResponse({ error: 'Method not allowed.' }, 405);
+  const expectedSecret = requiredEnv(env, 'COMMAND_REGISTRATION_SECRET');
+  if (bearerToken(request) !== expectedSecret) return jsonResponse({ error: 'Unauthorized.' }, 401);
+
+  const applicationId = requiredEnv(env, 'DISCORD_APPLICATION_ID');
+  const guildId = clean(env.DISCORD_GUILD_ID) || DEFAULT_GUILD_ID;
+  const RestClass = dependencies.RestClass || REST;
+  const rest = dependencies.rest || new RestClass({ version: '10' }).setToken(requiredEnv(env, 'DISCORD_BOT_TOKEN'));
+  const commands = createApplicationCommands();
+  await rest.put(Routes.applicationGuildCommands(applicationId, guildId), { body: commands });
+  return jsonResponse({ commands: commands.map(({ name }) => name), registered: true });
+}
+
 function actorMember(interaction) {
   return {
     id: clean(interaction?.member?.user?.id || interaction?.user?.id),
@@ -258,13 +280,69 @@ function resultMessage(result, { attempt = 1, retrying = false } = {}) {
 }
 
 async function editOriginalInteraction(rest, interaction, content) {
+  return editOriginalInteractionPayload(rest, interaction, { content });
+}
+
+async function editOriginalInteractionPayload(rest, interaction, payload) {
   await rest.patch(
     Routes.webhookMessage(interaction.application_id, interaction.token, '@original'),
     {
       auth: false,
-      body: { allowed_mentions: { parse: [] }, content },
+      body: { allowed_mentions: { parse: [] }, ...payload },
     },
   );
+}
+
+function componentsTextPayload(content) {
+  return {
+    components: [{ content, type: 10 }],
+    flags: MessageFlags.Ephemeral | MessageFlags.IsComponentsV2,
+  };
+}
+
+export async function processBuildInteraction(interaction, env, dependencies = {}) {
+  const RestClass = dependencies.RestClass || REST;
+  const rest = dependencies.rest || new RestClass({ version: '10' }).setToken(requiredEnv(env, 'DISCORD_BOT_TOKEN'));
+  const guildId = clean(env.DISCORD_GUILD_ID) || DEFAULT_GUILD_ID;
+  const channelId = clean(env.DISCORD_BUILD_CHANNEL_ID) || DEFAULT_BUILD_THREAD_CHANNEL_ID;
+
+  try {
+    if (clean(interaction.guild_id) !== guildId) {
+      await editOriginalInteractionPayload(rest, interaction, componentsTextPayload('This command is not available in this server.'));
+      return { found: false, ignored: true };
+    }
+
+    const channel = await rest.get(Routes.channel(interaction.channel_id));
+    if (clean(channel?.parent_id) !== channelId) {
+      await editOriginalInteractionPayload(rest, interaction, componentsTextPayload('Use `/build` inside a signup thread.'));
+      return { found: false, ignored: true };
+    }
+
+    const messages = await (dependencies.fetchThreadMessagesFn || fetchThreadMessages)(rest, clean(channel.id));
+    const rosterNumber = findSignupRosterNumber(messages, interaction);
+    if (!rosterNumber) {
+      await editOriginalInteractionPayload(rest, interaction, componentsTextPayload('Not signed up.'));
+      return { found: false, notSignedUp: true };
+    }
+
+    const layout = await (dependencies.loadLatestLayoutFn || loadLatestZvZBuildLayout)(env, dependencies.fetchImpl || fetch);
+    const build = findBuildForRosterNumber(layout, rosterNumber);
+    const payload = build ? createBuildResponsePayload(build, rosterNumber) : null;
+    if (!payload) {
+      await editOriginalInteractionPayload(rest, interaction, componentsTextPayload('No build found.'));
+      return { found: false, noBuild: true, rosterNumber };
+    }
+
+    await editOriginalInteractionPayload(rest, interaction, {
+      ...payload,
+      flags: MessageFlags.Ephemeral | MessageFlags.IsComponentsV2,
+    });
+    return { build, found: true, rosterNumber };
+  } catch (error) {
+    console.error('[militant-discord-interactions] Build command failed.', error);
+    await editOriginalInteractionPayload(rest, interaction, componentsTextPayload('No build found.')).catch(() => {});
+    throw error;
+  }
 }
 
 export async function processUploadInteraction(interaction, env, dependencies = {}) {
@@ -365,6 +443,9 @@ export async function handleInteractionRequest(request, env, context, dependenci
   if (requestUrl.pathname === '/webapp/member') {
     return handleMemberLookupRequest(request, env, dependencies);
   }
+  if (requestUrl.pathname === '/admin/commands') {
+    return handleCommandRegistrationRequest(request, env, dependencies);
+  }
   if (request.method === 'GET') {
     return new Response('Militant Discord interactions are online.');
   }
@@ -387,9 +468,17 @@ export async function handleInteractionRequest(request, env, context, dependenci
   if (interaction.type === InteractionType.Ping) {
     return jsonResponse({ type: InteractionResponseType.Pong });
   }
-  if (interaction.type !== InteractionType.ApplicationCommand || interaction.data?.name !== 'upload') {
+  if (interaction.type !== InteractionType.ApplicationCommand || !['build', 'upload'].includes(interaction.data?.name)) {
     return jsonResponse({
       data: { content: 'Unknown command.', flags: MessageFlags.Ephemeral },
+      type: InteractionResponseType.ChannelMessageWithSource,
+    });
+  }
+
+  if (interaction.data.name === 'build') {
+    context.waitUntil(processBuildInteraction(interaction, env, dependencies));
+    return jsonResponse({
+      data: componentsTextPayload('Finding your build...'),
       type: InteractionResponseType.ChannelMessageWithSource,
     });
   }

@@ -1,6 +1,6 @@
 # Mili Web
 
-Mili Web provides the Militant Discord integration. The production upload command is a serverless Cloudflare Worker: `/upload` reads the `.csv` loot logs in the current Discord thread and sends them through the existing webapp bundle pipeline. No always-on VM is required.
+Mili Web provides the Militant Discord integration. The serverless Cloudflare Worker handles `/upload` for loot logs and `/build` for signup-thread build cards. No always-on VM is required.
 
 ## Permissions
 
@@ -27,10 +27,11 @@ Set the local values in `.env` when registering or testing the command. Producti
 
 - `DISCORD_BOT_TOKEN`
 - `DISCORD_PUBLIC_KEY`
+- `COMMAND_REGISTRATION_SECRET`
 - `SUPABASE_URL`
 - `SUPABASE_SERVICE_ROLE_KEY`
 
-The application, guild, and loot-log channel IDs are configured in `wrangler.jsonc`.
+The application, guild, loot-log channel, and build-signup channel IDs are configured in `wrangler.jsonc`. `/build` reads only the current thread under the configured build-signup channel, finds the invoking member's roster number, and displays the matching build from the latest saved ZVZ layout.
 
 ## Deploy
 
@@ -39,7 +40,7 @@ npm run cf:deploy
 npm run discord:register
 ```
 
-After deployment, set the Worker URL as the application's Interactions Endpoint URL in the Discord Developer Portal. `/upload` is registered as a guild command, so updates are available immediately in the Militant server.
+After deployment, set the Worker URL as the application's Interactions Endpoint URL in the Discord Developer Portal. `/upload` and `/build` are registered as guild commands, so updates are available immediately in the Militant server.
 
 For local Worker development, run `npm run cf:dev`. The legacy `npm run discord:worker` command remains available only for local read-only gateway event monitoring and is not required for `/upload`, Discord login, or webapp permissions.
 

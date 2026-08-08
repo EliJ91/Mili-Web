@@ -1,0 +1,110 @@
+import assert from 'node:assert/strict';
+import { describe, it, mock } from 'node:test';
+import {
+  createBuildResponsePayload,
+  findBuildForRosterNumber,
+  findSignupRosterNumber,
+  loadLatestZvZBuildLayout,
+} from '../src/discord/buildCommand.js';
+
+const interaction = {
+  member: {
+    nick: 'Onslawht',
+    user: { global_name: 'E2J', id: '264193431830528006', username: 'e2j-account' },
+  },
+};
+
+function item(name, id) {
+  return {
+    annotation: '(Q1/W3/P2)',
+    imageUrl: `https://render.albiononline.com/v1/item/${id}.png?size=128`,
+    itemId: id,
+    name,
+  };
+}
+
+describe('/build helpers', () => {
+  it('finds the invoking member roster number in signup embed fields', () => {
+    const messages = [{
+      embeds: [{
+        fields: [
+          { name: 'Build #7', value: '<@111111111111111111>' },
+          { name: 'Build #12', value: '<@264193431830528006> - Onslawht' },
+        ],
+        title: 'CTA Signup Sheet',
+      }],
+      timestamp: '2026-08-08T12:00:00Z',
+    }];
+
+    assert.equal(findSignupRosterNumber(messages, interaction), '12');
+  });
+
+  it('finds a roster number from a numbered signup line using the server nickname', () => {
+    const messages = [{
+      content: '1. Another Player\n23) Onslawht - Engage\n24) Next Player',
+      timestamp: '2026-08-08T12:00:00Z',
+    }];
+
+    assert.equal(findSignupRosterNumber(messages, interaction), '23');
+  });
+
+  it('uses the newest signup sheet when a member appears more than once', () => {
+    const messages = [
+      { content: '4. <@264193431830528006>', timestamp: '2026-08-08T11:00:00Z' },
+      { content: '9. <@264193431830528006>', timestamp: '2026-08-08T12:00:00Z' },
+    ];
+
+    assert.equal(findSignupRosterNumber(messages, interaction), '9');
+  });
+
+  it('matches the stored build by its roster number', () => {
+    const expected = { number: '16', role: 'DPS' };
+    const layout = { builds: [{ number: '15' }, expected, { buildNumbers: ['17', '18'], number: '17, 18' }] };
+
+    assert.equal(findBuildForRosterNumber(layout, '16'), expected);
+    assert.equal(findBuildForRosterNumber(layout, '18').number, '17, 18');
+    assert.equal(findBuildForRosterNumber(layout, '99'), null);
+  });
+
+  it('loads only the most recently updated saved layout', async () => {
+    const fetchImpl = mock.fn(async () => new Response(JSON.stringify([{
+      builds: [{ number: '1' }],
+      id: 'layout-1',
+      title: 'Current CTA',
+    }]), { status: 200 }));
+
+    const layout = await loadLatestZvZBuildLayout({
+      SUPABASE_SERVICE_ROLE_KEY: 'service-key',
+      SUPABASE_URL: 'https://project.supabase.co',
+    }, fetchImpl);
+
+    assert.equal(layout.id, 'layout-1');
+    const url = new URL(fetchImpl.mock.calls[0].arguments[0]);
+    assert.equal(url.searchParams.get('limit'), '1');
+    assert.equal(url.searchParams.get('order'), 'updated_at.desc');
+  });
+
+  it('formats the matched build as a Discord role card with item image rows', () => {
+    const payload = createBuildResponsePayload({
+      number: '2',
+      role: 'Engage',
+      slots: {
+        armor: [item('Demon Armor', 'T8_ARMOR_PLATE_HELL')],
+        boots: [item('Royal Shoes', 'T8_SHOES_CLOTH_ROYAL')],
+        cape: [],
+        foodPots: [],
+        helm: [item('Assassin Hood', 'T8_HEAD_LEATHER_SET2')],
+        mainHand: [item('Lifecurse', 'T8_MAIN_CURSEDSTAFF_UNDEAD')],
+        offHand: [item('Aegis', 'T8_OFF_SHIELD_HELL')],
+      },
+    }, '2');
+
+    assert.match(payload.components[0].components[0].content, /Build #2/);
+    assert.match(payload.components[0].components[0].content, /Weapon:\*\* Choose/);
+    assert.match(payload.components[0].components[0].content, /Role:\*\* Engage/);
+    assert.equal(payload.components[0].components[1].type, 12);
+    assert.equal(payload.components[0].components[1].items.length, 2);
+    assert.match(payload.components[0].components[1].items[0].media.url, /T8_MAIN_CURSEDSTAFF_UNDEAD/);
+  });
+});
+

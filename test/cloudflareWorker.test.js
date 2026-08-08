@@ -7,14 +7,17 @@ import {
 } from 'discord-api-types/v10';
 import {
   handleInteractionRequest,
+  handleCommandRegistrationRequest,
   handleLootLogShareRequest,
   handleMemberLookupRequest,
   handleUploadQueue,
+  processBuildInteraction,
   processUploadInteraction,
 } from '../src/cloudflare/worker.js';
 
 const env = {
   DISCORD_BOT_TOKEN: 'bot-token',
+  DISCORD_BUILD_CHANNEL_ID: 'build-parent-1',
   DISCORD_GUILD_ID: 'guild-1',
   DISCORD_LOOT_LOG_CHANNEL_ID: 'parent-1',
   DISCORD_PUBLIC_KEY: 'public-key',
@@ -95,6 +98,33 @@ describe('Cloudflare Discord interaction worker', () => {
     assert.equal(response.status, 401);
   });
 
+  it('registers both guild commands through the protected worker endpoint', async () => {
+    const rest = { put: mock.fn(async () => []) };
+    const request = new Request('https://worker.test/admin/commands', {
+      headers: { Authorization: 'Bearer registration-secret' },
+      method: 'POST',
+    });
+
+    const response = await handleCommandRegistrationRequest(request, {
+      ...env,
+      COMMAND_REGISTRATION_SECRET: 'registration-secret',
+      DISCORD_APPLICATION_ID: 'application-1',
+    }, { rest });
+
+    assert.equal(response.status, 200);
+    assert.deepEqual(await response.json(), { commands: ['upload', 'build'], registered: true });
+    assert.deepEqual(rest.put.mock.calls[0].arguments[1].body.map(({ name }) => name), ['upload', 'build']);
+  });
+
+  it('rejects unauthenticated command registration requests', async () => {
+    const response = await handleCommandRegistrationRequest(
+      new Request('https://worker.test/admin/commands', { method: 'POST' }),
+      { ...env, COMMAND_REGISTRATION_SECRET: 'registration-secret' },
+    );
+
+    assert.equal(response.status, 401);
+  });
+
   it('responds to Discord verification pings', async () => {
     const request = new Request('https://worker.test/', {
       body: JSON.stringify({ type: InteractionType.Ping }),
@@ -149,6 +179,88 @@ describe('Cloudflare Discord interaction worker', () => {
     assert.equal(processThread.mock.callCount(), 1);
     assert.equal(rest.patch.mock.callCount(), 1);
     assert.match(rest.patch.mock.calls[0].arguments[1].body.content, /2 loot log/);
+  });
+
+  it('acknowledges build work immediately and returns the signed-up member build', async () => {
+    const pending = [];
+    const rest = {
+      get: mock.fn(async () => ({
+        id: 'thread-1', name: 'CTA signup', parent_id: 'build-parent-1', type: 11,
+      })),
+      patch: mock.fn(async () => ({})),
+    };
+    const request = new Request('https://worker.test/', {
+      body: JSON.stringify(interaction({ data: { name: 'build' } })),
+      headers: {
+        'x-signature-ed25519': 'signature',
+        'x-signature-timestamp': 'timestamp',
+      },
+      method: 'POST',
+    });
+    const response = await handleInteractionRequest(request, env, {
+      waitUntil(promise) { pending.push(promise); },
+    }, {
+      fetchThreadMessagesFn: async () => [{
+        content: '2. <@user-1>',
+        timestamp: '2026-08-08T12:00:00Z',
+      }],
+      loadLatestLayoutFn: async () => ({
+        builds: [{
+          number: '2',
+          role: 'Engage',
+          slots: {
+            armor: [], boots: [], cape: [], foodPots: [], helm: [], offHand: [],
+            mainHand: [{
+              imageUrl: 'https://render.albiononline.com/v1/item/T8_MAIN_CURSEDSTAFF_UNDEAD.png',
+              name: 'Lifecurse',
+            }],
+          },
+        }],
+      }),
+      rest,
+      verify: async () => true,
+    });
+    await Promise.all(pending);
+
+    const acknowledgement = await response.json();
+    assert.equal(acknowledgement.type, InteractionResponseType.ChannelMessageWithSource);
+    assert.equal(acknowledgement.data.flags, MessageFlags.Ephemeral | MessageFlags.IsComponentsV2);
+    assert.match(acknowledgement.data.components[0].content, /Finding your build/);
+    const result = rest.patch.mock.calls[0].arguments[1].body;
+    assert.match(result.components[0].components[0].content, /Build #2/);
+    assert.match(result.components[0].components[0].content, /Role:\*\* Engage/);
+  });
+
+  it('returns not signed up when the invoking member is absent from the current thread signup', async () => {
+    const rest = {
+      get: mock.fn(async () => ({
+        id: 'thread-1', name: 'CTA signup', parent_id: 'build-parent-1', type: 11,
+      })),
+      patch: mock.fn(async () => ({})),
+    };
+
+    const result = await processBuildInteraction(interaction({ data: { name: 'build' } }), env, {
+      fetchThreadMessagesFn: async () => [{ content: '1. <@someone-else>', timestamp: '2026-08-08T12:00:00Z' }],
+      loadLatestLayoutFn: async () => ({ builds: [] }),
+      rest,
+    });
+
+    assert.equal(result.notSignedUp, true);
+    assert.equal(rest.patch.mock.calls[0].arguments[1].body.components[0].content, 'Not signed up.');
+  });
+
+  it('rejects build lookups outside the configured signup thread channel', async () => {
+    const rest = {
+      get: mock.fn(async () => ({
+        id: 'thread-1', name: 'Other thread', parent_id: 'wrong-parent', type: 11,
+      })),
+      patch: mock.fn(async () => ({})),
+    };
+
+    const result = await processBuildInteraction(interaction({ data: { name: 'build' } }), env, { rest });
+
+    assert.equal(result.ignored, true);
+    assert.match(rest.patch.mock.calls[0].arguments[1].body.components[0].content, /signup thread/);
   });
 
   it('queues upload work when the durable queue binding is available', async () => {
