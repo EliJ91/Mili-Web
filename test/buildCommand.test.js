@@ -162,7 +162,7 @@ describe('/build helpers', () => {
     assert.match(payload.components[0].components.at(-1).content, /Hold defensives for the second engage/);
   });
 
-  it('compacts proxied Albion item images for Discord', () => {
+  it('preserves cached proxy images while Discord renders a compact thumbnail', () => {
     const payload = createBuildResponsePayload({
       role: 'DPS',
       slots: {
@@ -175,7 +175,7 @@ describe('/build helpers', () => {
     }, '14');
 
     const imageUrl = new URL(payload.components[0].components[1].accessory.media.url);
-    assert.equal(imageUrl.hostname, 'render.albiononline.com');
-    assert.equal(imageUrl.searchParams.get('size'), '128');
+    assert.equal(imageUrl.hostname, 'images.weserv.nl');
+    assert.match(imageUrl.searchParams.get('url'), /size=160/);
   });
 });
