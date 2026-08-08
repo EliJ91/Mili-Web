@@ -105,6 +105,40 @@ function rosterNumberFromBlock(block, userId, names) {
   return '';
 }
 
+function orderedSignupRosterNumber(message, userId, names) {
+  const blocks = [...objectTextBlocks(message?.embeds), ...objectTextBlocks(message?.components)];
+  if (blocks.length === 0) return '';
+
+  const normalized = normalizeKeycapDigits(blocks.join('\n'));
+  const partyMatch = normalized.match(/\bParty\s+(\d{1,2})\b/i);
+  const partyNumber = Math.max(1, Number(partyMatch?.[1]) || 1);
+  const lines = normalized.split(/\r?\n/).map(clean).filter(Boolean);
+  let roleGroup = 0;
+  let assignmentIndex = 0;
+
+  for (const line of lines) {
+    if (/\bLoot\s+Loggers?\b/i.test(line)) {
+      roleGroup = 0;
+      assignmentIndex = 0;
+      continue;
+    }
+
+    const groupMatch = line.match(/^Roles?\s+(\d{1,2})\b/i);
+    if (groupMatch) {
+      roleGroup = Number(groupMatch[1]);
+      assignmentIndex = 0;
+      continue;
+    }
+    if (!roleGroup || !/[—–-]\s*(?:<@!?\d+>|@|Empty\b)/i.test(line)) continue;
+
+    assignmentIndex += 1;
+    if (!lineContainsIdentity(line, userId, names)) continue;
+    return String(((partyNumber - 1) * 20) + ((roleGroup - 1) * 10) + assignmentIndex);
+  }
+
+  return '';
+}
+
 export function findSignupRosterNumber(messages, interaction) {
   const userId = clean(interaction?.member?.user?.id || interaction?.user?.id);
   const names = identityTokens(interaction);
@@ -112,8 +146,13 @@ export function findSignupRosterNumber(messages, interaction) {
     .sort((left, right) => messageTimestamp(right) - messageTimestamp(left));
 
   for (const message of orderedMessages) {
+    const number = orderedSignupRosterNumber(message, userId, names);
+    if (number) return number;
+  }
+
+  for (const message of orderedMessages) {
     const blocks = [clean(message?.content), ...objectTextBlocks(message?.embeds), ...objectTextBlocks(message?.components)]
-      .filter(Boolean);
+      .filter((block) => block && !/\bLoot\s+Loggers?\b/i.test(block));
     for (const block of blocks) {
       const number = rosterNumberFromBlock(block, userId, names);
       if (number) return number;
@@ -203,4 +242,3 @@ export function createBuildResponsePayload(build, rosterNumber) {
     }],
   };
 }
-

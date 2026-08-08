@@ -48,6 +48,52 @@ describe('/build helpers', () => {
     assert.equal(findSignupRosterNumber(messages, interaction), '23');
   });
 
+  it('infers the build number from the ordered MILI-BOT signup sheet', () => {
+    const messages = [{
+      embeds: [{
+        fields: [{
+          name: 'Roles 1',
+          value: [
+            '**Earthrune**,\n— <@111111111111111111>',
+            '**Lifecurse**,\n— <@222222222222222222>',
+            '**Rootbound**,\n— <@333333333333333333>',
+            '**Oathkeepers**,\n— Empty',
+            '**Enigmatic**,\n— <@264193431830528006>',
+            '**Locus**,\n— <@444444444444444444>',
+          ].join('\n\n'),
+        }, {
+          name: 'Roles 2',
+          value: '**Shadowcaller**,\n— <@555555555555555555>',
+        }, {
+          name: 'Loot Loggers',
+          value: 'Loot Logger 3\n— <@264193431830528006>',
+        }],
+        title: '02 HOLY MASS — Party 1',
+      }],
+      timestamp: '2026-08-08T19:11:00Z',
+    }];
+
+    assert.equal(findSignupRosterNumber(messages, interaction), '5');
+  });
+
+  it('applies the party and role-column offsets to ordered signup sheets', () => {
+    const messages = [{
+      embeds: [{
+        fields: [{
+          name: 'Roles 2',
+          value: [
+            '**Build 31**,\n— <@111111111111111111>',
+            '**Build 32**,\n— <@264193431830528006>',
+          ].join('\n\n'),
+        }],
+        title: '02 HOLY MASS — Party 2',
+      }],
+      timestamp: '2026-08-08T19:11:00Z',
+    }];
+
+    assert.equal(findSignupRosterNumber(messages, interaction), '32');
+  });
+
   it('uses the newest signup sheet when a member appears more than once', () => {
     const messages = [
       { content: '4. <@264193431830528006>', timestamp: '2026-08-08T11:00:00Z' },
@@ -107,4 +153,3 @@ describe('/build helpers', () => {
     assert.match(payload.components[0].components[1].items[0].media.url, /T8_MAIN_CURSEDSTAFF_UNDEAD/);
   });
 });
-
