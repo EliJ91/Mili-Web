@@ -214,9 +214,6 @@ function compactItemImageUrl(value) {
         if (sourceUrl.hostname === 'render.albiononline.com') sourceUrl.searchParams.set('size', '128');
         url.searchParams.set('url', sourceUrl.toString().replace(/^https?:\/\//i, ''));
       }
-      url.searchParams.set('w', '128');
-      url.searchParams.set('h', '128');
-      url.searchParams.set('fit', 'contain');
     }
     return url.toString();
   } catch {
