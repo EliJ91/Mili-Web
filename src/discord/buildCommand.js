@@ -199,15 +199,34 @@ function itemDescription(item) {
   return `${name}${annotation ? ` ${annotation}` : ''}`.slice(0, 1024);
 }
 
+function compactItemImageUrl(value) {
+  const imageUrl = clean(value);
+  try {
+    const url = new URL(imageUrl);
+    if (url.hostname === 'render.albiononline.com') url.searchParams.set('size', '128');
+    return url.toString();
+  } catch {
+    return imageUrl;
+  }
+}
+
 function slotGallery(items) {
   const galleryItems = (Array.isArray(items) ? items : [])
     .filter((item) => /^https:\/\//i.test(clean(item?.imageUrl)))
     .slice(0, MAX_GALLERY_ITEMS)
     .map((item) => ({
       description: itemDescription(item),
-      media: { url: clean(item.imageUrl) },
+      media: { url: compactItemImageUrl(item.imageUrl) },
     }));
   return galleryItems.length ? { items: galleryItems, type: COMPONENT_TYPE_MEDIA_GALLERY } : null;
+}
+
+function slotCaption(items) {
+  const captions = (Array.isArray(items) ? items : [])
+    .filter((item) => /^https:\/\//i.test(clean(item?.imageUrl)))
+    .slice(0, MAX_GALLERY_ITEMS)
+    .map((item) => `**${itemDescription(item)}**`);
+  return captions.length ? { content: captions.join('  |  '), type: COMPONENT_TYPE_TEXT_DISPLAY } : null;
 }
 
 function weaponName(build) {
@@ -227,8 +246,17 @@ export function createBuildResponsePayload(build, rosterNumber) {
     slots.cape,
     slots.foodPots,
   ];
-  const galleries = rows.map(slotGallery).filter(Boolean);
-  if (galleries.length === 0) return null;
+  const itemRows = rows.flatMap((items) => {
+    const gallery = slotGallery(items);
+    const caption = slotCaption(items);
+    return gallery && caption ? [gallery, caption] : [];
+  });
+  if (itemRows.length === 0) return null;
+
+  const notes = clean(build?.notes);
+  const noteComponent = notes
+    ? [{ content: `**Notes**\n${notes}`.slice(0, 4000), type: COMPONENT_TYPE_TEXT_DISPLAY }]
+    : [];
 
   return {
     allowed_mentions: { parse: [] },
@@ -237,7 +265,7 @@ export function createBuildResponsePayload(build, rosterNumber) {
       components: [{
         content: `### Build #${clean(rosterNumber)}\n**Weapon:** ${weaponName(build)}  \n**Role:** ${clean(build?.role) || 'Unknown'}`,
         type: COMPONENT_TYPE_TEXT_DISPLAY,
-      }, ...galleries],
+      }, ...itemRows, ...noteComponent],
       type: COMPONENT_TYPE_CONTAINER,
     }],
   };

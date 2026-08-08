@@ -17,7 +17,7 @@ const interaction = {
 function item(name, id) {
   return {
     annotation: '(Q1/W3/P2)',
-    imageUrl: `https://render.albiononline.com/v1/item/${id}.png?size=128`,
+    imageUrl: `https://render.albiononline.com/v1/item/${id}.png?size=160`,
     itemId: id,
     name,
   };
@@ -133,6 +133,7 @@ describe('/build helpers', () => {
   it('formats the matched build as a Discord role card with item image rows', () => {
     const payload = createBuildResponsePayload({
       number: '2',
+      notes: 'Hold defensives for the second engage.',
       role: 'Engage',
       slots: {
         armor: [item('Demon Armor', 'T8_ARMOR_PLATE_HELL')],
@@ -151,5 +152,10 @@ describe('/build helpers', () => {
     assert.equal(payload.components[0].components[1].type, 12);
     assert.equal(payload.components[0].components[1].items.length, 2);
     assert.match(payload.components[0].components[1].items[0].media.url, /T8_MAIN_CURSEDSTAFF_UNDEAD/);
+    assert.equal(new URL(payload.components[0].components[1].items[0].media.url).searchParams.get('size'), '128');
+    assert.match(payload.components[0].components[2].content, /Lifecurse \(Q1\/W3\/P2\)/);
+    assert.match(payload.components[0].components[2].content, /Aegis \(Q1\/W3\/P2\)/);
+    assert.match(payload.components[0].components.at(-1).content, /Notes/);
+    assert.match(payload.components[0].components.at(-1).content, /Hold defensives for the second engage/);
   });
 });
