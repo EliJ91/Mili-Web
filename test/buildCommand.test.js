@@ -175,6 +175,7 @@ describe('/build helpers', () => {
     }, '14');
 
     const imageUrl = new URL(payload.components[0].components[1].accessory.media.url);
-    assert.match(imageUrl.searchParams.get('url'), /size=128/);
+    assert.equal(imageUrl.hostname, 'render.albiononline.com');
+    assert.equal(imageUrl.searchParams.get('size'), '128');
   });
 });
