@@ -206,7 +206,10 @@ function compactItemImageUrl(value) {
   try {
     const url = new URL(imageUrl);
     if (url.hostname === 'render.albiononline.com') {
-      url.searchParams.set('size', '128');
+      url.searchParams.set('size', '160');
+      const proxyUrl = new URL('https://images.weserv.nl/');
+      proxyUrl.searchParams.set('url', url.toString().replace(/^https?:\/\//i, ''));
+      return proxyUrl.toString();
     }
     return url.toString();
   } catch {

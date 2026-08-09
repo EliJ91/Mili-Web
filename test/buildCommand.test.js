@@ -152,7 +152,7 @@ describe('/build helpers', () => {
     assert.equal(payload.components[0].components[1].type, 12);
     assert.equal(payload.components[0].components[1].items.length, 2);
     assert.match(payload.components[0].components[1].items[0].media.url, /T8_MAIN_CURSEDSTAFF_UNDEAD/);
-    assert.equal(new URL(payload.components[0].components[1].items[0].media.url).searchParams.get('size'), '128');
+    assert.match(new URL(payload.components[0].components[1].items[0].media.url).searchParams.get('url'), /size=160/);
     assert.match(payload.components[0].components[2].content, /Lifecurse \(Q1\/W3\/P2\)/);
     assert.match(payload.components[0].components[2].content, /Aegis \(Q1\/W3\/P2\)/);
     assert.equal(payload.components[0].components[3].type, 9);
