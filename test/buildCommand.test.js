@@ -150,14 +150,12 @@ describe('/build helpers', () => {
     assert.match(payload.components[0].components[0].content, /Weapon:\*\* Choose/);
     assert.match(payload.components[0].components[0].content, /Role:\*\* Engage/);
     assert.equal(payload.components[0].components[1].type, 12);
-    assert.equal(payload.components[0].components[1].items.length, 2);
+    assert.equal(payload.components[0].components[1].items.length, 5);
     assert.match(payload.components[0].components[1].items[0].media.url, /T8_MAIN_CURSEDSTAFF_UNDEAD/);
     assert.match(new URL(payload.components[0].components[1].items[0].media.url).searchParams.get('url'), /size=160/);
     assert.match(payload.components[0].components[2].content, /Lifecurse \(Q1\/W3\/P2\)/);
     assert.match(payload.components[0].components[2].content, /Aegis \(Q1\/W3\/P2\)/);
-    assert.equal(payload.components[0].components[3].type, 9);
-    assert.equal(payload.components[0].components[3].accessory.type, 11);
-    assert.match(payload.components[0].components[3].components[0].content, /Assassin Hood \(Q1\/W3\/P2\)/);
+    assert.match(payload.components[0].components[2].content, /Assassin Hood \(Q1\/W3\/P2\)/);
     assert.match(payload.components[0].components.at(-1).content, /Notes/);
     assert.match(payload.components[0].components.at(-1).content, /Hold defensives for the second engage/);
   });
@@ -174,7 +172,7 @@ describe('/build helpers', () => {
       },
     }, '14');
 
-    const imageUrl = new URL(payload.components[0].components[1].accessory.media.url);
+    const imageUrl = new URL(payload.components[0].components[1].items[0].media.url);
     assert.equal(imageUrl.hostname, 'images.weserv.nl');
     assert.match(imageUrl.searchParams.get('url'), /size=160/);
   });

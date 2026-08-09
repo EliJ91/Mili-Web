@@ -1,8 +1,6 @@
 export const DEFAULT_BUILD_THREAD_CHANNEL_ID = '1492392003239936010';
 
 const COMPONENT_TYPE_TEXT_DISPLAY = 10;
-const COMPONENT_TYPE_SECTION = 9;
-const COMPONENT_TYPE_THUMBNAIL = 11;
 const COMPONENT_TYPE_MEDIA_GALLERY = 12;
 const COMPONENT_TYPE_CONTAINER = 17;
 const MAX_GALLERY_ITEMS = 10;
@@ -236,26 +234,17 @@ function slotCaption(items) {
   return captions.length ? { content: captions.join('  |  '), type: COMPONENT_TYPE_TEXT_DISPLAY } : null;
 }
 
-function slotComponents(items) {
+function compactGalleryComponents(items) {
   const visibleItems = (Array.isArray(items) ? items : [])
-    .filter((item) => /^https:\/\//i.test(clean(item?.imageUrl)))
-    .slice(0, MAX_GALLERY_ITEMS);
-  if (visibleItems.length === 1) {
-    const [item] = visibleItems;
-    return [{
-      accessory: {
-        description: itemDescription(item),
-        media: { url: compactItemImageUrl(item.imageUrl) },
-        type: COMPONENT_TYPE_THUMBNAIL,
-      },
-      components: [{ content: `**${itemDescription(item)}**`, type: COMPONENT_TYPE_TEXT_DISPLAY }],
-      type: COMPONENT_TYPE_SECTION,
-    }];
+    .filter((item) => /^https:\/\//i.test(clean(item?.imageUrl)));
+  const components = [];
+  for (let index = 0; index < visibleItems.length; index += MAX_GALLERY_ITEMS) {
+    const chunk = visibleItems.slice(index, index + MAX_GALLERY_ITEMS);
+    const gallery = slotGallery(chunk);
+    const caption = slotCaption(chunk);
+    if (gallery && caption) components.push(gallery, caption);
   }
-
-  const gallery = slotGallery(visibleItems);
-  const caption = slotCaption(visibleItems);
-  return gallery && caption ? [gallery, caption] : [];
+  return components;
 }
 
 function weaponName(build) {
@@ -275,7 +264,7 @@ export function createBuildResponsePayload(build, rosterNumber) {
     slots.cape,
     slots.foodPots,
   ];
-  const itemRows = rows.flatMap(slotComponents);
+  const itemRows = compactGalleryComponents(rows.flat());
   if (itemRows.length === 0) return null;
 
   const notes = clean(build?.notes);
