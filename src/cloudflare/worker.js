@@ -212,9 +212,15 @@ function validBuildItemIds(value) {
 async function fetchBuildIcon(itemId, fetchImpl) {
   const imagePath = `render.albiononline.com/v1/item/${encodeURIComponent(itemId)}.png?count=1&quality=1&size=160`;
   const imageUrl = `https://images.weserv.nl/?url=${encodeURIComponent(imagePath)}`;
-  const response = await fetchImpl(imageUrl);
-  if (!response.ok) return null;
-  return decodePng(new Uint8Array(await response.arrayBuffer()));
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    try {
+      const response = await fetchImpl(imageUrl);
+      if (response.ok) return decodePng(new Uint8Array(await response.arrayBuffer()));
+    } catch (error) {
+      if (attempt === 3) throw error;
+    }
+  }
+  return null;
 }
 
 export async function handleBuildItemsImageRequest(request, dependencies = {}) {
@@ -347,13 +353,15 @@ async function editOriginalInteraction(rest, interaction, content) {
   return editOriginalInteractionPayload(rest, interaction, { content });
 }
 
-async function editOriginalInteractionPayload(rest, interaction, payload) {
+async function editOriginalInteractionPayload(rest, interaction, payload, files = []) {
+  const requestOptions = {
+    auth: false,
+    body: { allowed_mentions: { parse: [] }, ...payload },
+  };
+  if (files.length > 0) requestOptions.files = files;
   await rest.patch(
     Routes.webhookMessage(interaction.application_id, interaction.token, '@original'),
-    {
-      auth: false,
-      body: { allowed_mentions: { parse: [] }, ...payload },
-    },
+    requestOptions,
   );
 }
 
@@ -362,6 +370,37 @@ function componentsTextPayload(content) {
     components: [{ content, type: 10 }],
     flags: MessageFlags.Ephemeral | MessageFlags.IsComponentsV2,
   };
+}
+
+async function attachBuildImages(payload, dependencies = {}) {
+  const preparedPayload = structuredClone(payload);
+  const galleries = preparedPayload.components?.flatMap((container) => (
+    container?.components?.filter((component) => component?.type === 12) || []
+  )) || [];
+  const files = [];
+  const renderImage = dependencies.renderBuildImageFn || handleBuildItemsImageRequest;
+
+  for (const gallery of galleries) {
+    for (const galleryItem of gallery.items || []) {
+      const sourceUrl = clean(galleryItem?.media?.url);
+      if (!sourceUrl || new URL(sourceUrl).pathname !== '/build-items') continue;
+
+      const response = await renderImage(new Request(sourceUrl), {
+        fetchImpl: dependencies.fetchImpl || fetch,
+      });
+      if (!response.ok) continue;
+
+      const name = `build-items-${files.length + 1}.png`;
+      files.push({
+        contentType: 'image/png',
+        data: new Uint8Array(await response.arrayBuffer()),
+        name,
+      });
+      galleryItem.media.url = `attachment://${name}`;
+    }
+  }
+
+  return { files, payload: preparedPayload };
 }
 
 export async function processBuildInteraction(interaction, env, dependencies = {}) {
@@ -401,10 +440,11 @@ export async function processBuildInteraction(interaction, env, dependencies = {
       return { found: false, noBuild: true, rosterNumber };
     }
 
+    const prepared = await attachBuildImages(payload, dependencies);
     await editOriginalInteractionPayload(rest, interaction, {
-      ...payload,
+      ...prepared.payload,
       flags: MessageFlags.Ephemeral | MessageFlags.IsComponentsV2,
-    });
+    }, prepared.files);
     return { build, found: true, rosterNumber };
   } catch (error) {
     console.error('[militant-discord-interactions] Build command failed.', error);

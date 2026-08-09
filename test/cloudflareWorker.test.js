@@ -206,6 +206,13 @@ describe('Cloudflare Discord interaction worker', () => {
 
   it('acknowledges build work immediately and returns the signed-up member build', async () => {
     const pending = [];
+    const attachedPng = encodePng({
+      channels: 4,
+      data: new Uint8Array(4).fill(255),
+      depth: 8,
+      height: 1,
+      width: 1,
+    });
     const rest = {
       get: mock.fn(async () => ({
         id: 'thread-1', name: 'CTA signup', parent_id: 'build-parent-1', type: 11,
@@ -240,6 +247,10 @@ describe('Cloudflare Discord interaction worker', () => {
           },
         }],
       }),
+      renderBuildImageFn: async () => new Response(attachedPng, {
+        headers: { 'Content-Type': 'image/png' },
+        status: 200,
+      }),
       rest,
       verify: async () => true,
     });
@@ -249,9 +260,14 @@ describe('Cloudflare Discord interaction worker', () => {
     assert.equal(acknowledgement.type, InteractionResponseType.ChannelMessageWithSource);
     assert.equal(acknowledgement.data.flags, MessageFlags.Ephemeral | MessageFlags.IsComponentsV2);
     assert.match(acknowledgement.data.components[0].content, /Finding your build/);
-    const result = rest.patch.mock.calls[0].arguments[1].body;
+    const requestOptions = rest.patch.mock.calls[0].arguments[1];
+    const result = requestOptions.body;
     assert.match(result.components[0].components[0].content, /Build #2/);
     assert.match(result.components[0].components[0].content, /Role:\*\* Engage/);
+    assert.equal(result.components[0].components[1].items[0].media.url, 'attachment://build-items-1.png');
+    assert.equal(requestOptions.files[0].name, 'build-items-1.png');
+    assert.equal(requestOptions.files[0].contentType, 'image/png');
+    assert.ok(requestOptions.files[0].data.byteLength > 0);
   });
 
   it('returns not signed up when the invoking member is absent from the current thread signup', async () => {
