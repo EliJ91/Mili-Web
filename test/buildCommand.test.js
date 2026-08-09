@@ -153,13 +153,11 @@ describe('/build helpers', () => {
     assert.equal(payload.components[0].components[1].items.length, 5);
     assert.match(payload.components[0].components[1].items[0].media.url, /T8_MAIN_CURSEDSTAFF_UNDEAD/);
     const paddedUrl = new URL(payload.components[0].components[1].items[0].media.url);
-    const compactUrl = new URL(`https://${paddedUrl.searchParams.get('url')}`);
-    const sourceUrl = new URL(`https://${compactUrl.searchParams.get('url')}`);
+    const sourceUrl = new URL(`https://${paddedUrl.searchParams.get('url')}`);
     assert.equal(paddedUrl.searchParams.get('w'), '120');
     assert.equal(paddedUrl.searchParams.get('h'), '120');
-    assert.equal(compactUrl.searchParams.get('w'), '60');
-    assert.equal(compactUrl.searchParams.get('h'), '120');
-    assert.equal(sourceUrl.searchParams.get('size'), '160');
+    assert.equal(paddedUrl.searchParams.has('we'), true);
+    assert.equal(sourceUrl.searchParams.get('size'), '60');
     assert.match(payload.components[0].components[2].content, /Lifecurse \(Q1\/W3\/P2\)/);
     assert.match(payload.components[0].components[2].content, /Aegis \(Q1\/W3\/P2\)/);
     assert.match(payload.components[0].components[2].content, /Assassin Hood \(Q1\/W3\/P2\)/);
@@ -180,15 +178,24 @@ describe('/build helpers', () => {
     }, '14');
 
     const paddedUrl = new URL(payload.components[0].components[1].items[0].media.url);
-    const compactUrl = new URL(`https://${paddedUrl.searchParams.get('url')}`);
-    const sourceUrl = new URL(`https://${compactUrl.searchParams.get('url')}`);
+    const sourceUrl = new URL(`https://${paddedUrl.searchParams.get('url')}`);
     assert.equal(paddedUrl.hostname, 'images.weserv.nl');
     assert.equal(paddedUrl.searchParams.get('w'), '120');
     assert.equal(paddedUrl.searchParams.get('h'), '120');
-    assert.equal(compactUrl.hostname, 'images.weserv.nl');
-    assert.equal(compactUrl.searchParams.get('w'), '60');
-    assert.equal(compactUrl.searchParams.get('h'), '120');
+    assert.equal(paddedUrl.searchParams.has('we'), true);
     assert.equal(sourceUrl.hostname, 'render.albiononline.com');
-    assert.equal(sourceUrl.searchParams.get('size'), '160');
+    assert.equal(sourceUrl.searchParams.get('size'), '60');
+  });
+
+  it('resolves the crystal tower chariot image from its saved item name', () => {
+    const payload = createBuildResponsePayload({
+      role: 'Battle Mount',
+      slots: {
+        mainHand: [{ imageUrl: '', itemId: '', name: 'Chariot' }],
+      },
+    }, '21');
+
+    const imageUrl = payload.components[0].components[1].items[0].media.url;
+    assert.match(imageUrl, /UNIQUE_MOUNT_TOWER_CHARIOT_CRYSTAL/);
   });
 });

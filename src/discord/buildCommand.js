@@ -4,6 +4,12 @@ const COMPONENT_TYPE_TEXT_DISPLAY = 10;
 const COMPONENT_TYPE_MEDIA_GALLERY = 12;
 const COMPONENT_TYPE_CONTAINER = 17;
 const MAX_GALLERY_ITEMS = 10;
+const BUILD_ITEM_NAME_IDS = new Map([
+  ['chariot', 'UNIQUE_MOUNT_TOWER_CHARIOT_CRYSTAL'],
+  ['crystal tower chariot', 'UNIQUE_MOUNT_TOWER_CHARIOT_CRYSTAL'],
+  ['hideout construction kit', 'UNIQUE_HIDEOUT'],
+  ['hideout kit', 'UNIQUE_HIDEOUT'],
+]);
 
 function clean(value) {
   return String(value || '').trim();
@@ -199,6 +205,21 @@ function itemDescription(item) {
   return `${name}${annotation ? ` ${annotation}` : ''}`.slice(0, 1024);
 }
 
+function normalizedItemName(value) {
+  return clean(value).replace(/[^a-z0-9]+/gi, ' ').replace(/\s+/g, ' ').toLowerCase();
+}
+
+function resolvedItemImageUrl(item) {
+  const savedUrl = clean(item?.imageUrl);
+  if (/^https:\/\//i.test(savedUrl)) return savedUrl;
+
+  const itemId = clean(item?.itemId)
+    || BUILD_ITEM_NAME_IDS.get(normalizedItemName(item?.name || item?.lookupName));
+  if (!itemId) return '';
+  const imagePath = `${itemId}.png?count=1&quality=1&size=160`;
+  return `https://images.weserv.nl/?url=${encodeURIComponent(`render.albiononline.com/v1/item/${imagePath}`)}`;
+}
+
 function compactItemImageUrl(value) {
   const imageUrl = clean(value);
   try {
@@ -213,23 +234,16 @@ function compactItemImageUrl(value) {
     }
 
     if (sourceUrl.hostname !== 'render.albiononline.com') return imageUrl;
-    sourceUrl.searchParams.set('size', '160');
-
-    const compactIconUrl = new URL('https://images.weserv.nl/');
-    compactIconUrl.searchParams.set('url', sourceUrl.toString().replace(/^https?:\/\//i, ''));
-    compactIconUrl.searchParams.set('w', '60');
-    compactIconUrl.searchParams.set('h', '120');
-    compactIconUrl.searchParams.set('fit', 'contain');
-    compactIconUrl.searchParams.set('cbg', '00000000');
-    compactIconUrl.searchParams.set('output', 'png');
+    sourceUrl.searchParams.set('size', '60');
 
     const paddedIconUrl = new URL('https://images.weserv.nl/');
-    paddedIconUrl.searchParams.set('url', compactIconUrl.toString().replace(/^https?:\/\//i, ''));
+    paddedIconUrl.searchParams.set('url', sourceUrl.toString().replace(/^https?:\/\//i, ''));
     paddedIconUrl.searchParams.set('w', '120');
     paddedIconUrl.searchParams.set('h', '120');
     paddedIconUrl.searchParams.set('fit', 'contain');
     paddedIconUrl.searchParams.set('cbg', '00000000');
     paddedIconUrl.searchParams.set('output', 'png');
+    paddedIconUrl.searchParams.set('we', '');
     return paddedIconUrl.toString();
   } catch {
     return imageUrl;
@@ -238,18 +252,18 @@ function compactItemImageUrl(value) {
 
 function slotGallery(items) {
   const galleryItems = (Array.isArray(items) ? items : [])
-    .filter((item) => /^https:\/\//i.test(clean(item?.imageUrl)))
+    .filter((item) => resolvedItemImageUrl(item))
     .slice(0, MAX_GALLERY_ITEMS)
     .map((item) => ({
       description: itemDescription(item),
-      media: { url: compactItemImageUrl(item.imageUrl) },
+      media: { url: compactItemImageUrl(resolvedItemImageUrl(item)) },
     }));
   return galleryItems.length ? { items: galleryItems, type: COMPONENT_TYPE_MEDIA_GALLERY } : null;
 }
 
 function slotCaption(items) {
   const captions = (Array.isArray(items) ? items : [])
-    .filter((item) => /^https:\/\//i.test(clean(item?.imageUrl)))
+    .filter((item) => resolvedItemImageUrl(item))
     .slice(0, MAX_GALLERY_ITEMS)
     .map((item) => `**${itemDescription(item)}**`);
   return captions.length ? { content: captions.join('  |  '), type: COMPONENT_TYPE_TEXT_DISPLAY } : null;
@@ -257,7 +271,7 @@ function slotCaption(items) {
 
 function compactGalleryComponents(items) {
   const visibleItems = (Array.isArray(items) ? items : [])
-    .filter((item) => /^https:\/\//i.test(clean(item?.imageUrl)));
+    .filter((item) => resolvedItemImageUrl(item));
   const components = [];
   for (let index = 0; index < visibleItems.length; index += MAX_GALLERY_ITEMS) {
     const chunk = visibleItems.slice(index, index + MAX_GALLERY_ITEMS);
