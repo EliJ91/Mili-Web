@@ -6,6 +6,7 @@ import {
   Routes,
 } from 'discord-api-types/v10';
 import { verifyKey } from 'discord-interactions';
+import { decode as decodePng, encode as encodePng } from 'fast-png';
 import {
   DEFAULT_LOOT_LOG_THREAD_CHANNEL_ID,
   processLootUploadThread,
@@ -194,6 +195,61 @@ function createDisplayNameResolver(rest, guildId) {
     if (userId) nicknameCache.set(userId, resolved);
     return resolved;
   };
+}
+
+const BUILD_ICON_SIZE = 56;
+const BUILD_ICON_CELL_SIZE = 64;
+const MAX_BUILD_STRIP_ITEMS = 10;
+
+function validBuildItemIds(value) {
+  return clean(value)
+    .split(',')
+    .map(clean)
+    .filter((itemId) => /^[A-Z0-9_@-]+$/i.test(itemId))
+    .slice(0, MAX_BUILD_STRIP_ITEMS);
+}
+
+async function fetchBuildIcon(itemId, fetchImpl) {
+  const imageUrl = `https://render.albiononline.com/v1/item/${encodeURIComponent(itemId)}.png?count=1&quality=1&size=${BUILD_ICON_SIZE}`;
+  const response = await fetchImpl(imageUrl);
+  if (!response.ok) return null;
+  return decodePng(new Uint8Array(await response.arrayBuffer()));
+}
+
+export async function handleBuildItemsImageRequest(request, dependencies = {}) {
+  if (request.method !== 'GET') return new Response('Method Not Allowed', { status: 405 });
+  const itemIds = validBuildItemIds(new URL(request.url).searchParams.get('items'));
+  if (itemIds.length === 0) return new Response('Build items not found.', { status: 404 });
+
+  const fetchImpl = dependencies.fetchImpl || fetch;
+  const icons = await Promise.all(itemIds.map((itemId) => fetchBuildIcon(itemId, fetchImpl).catch(() => null)));
+  const width = BUILD_ICON_CELL_SIZE * itemIds.length;
+  const output = new Uint8Array(width * BUILD_ICON_CELL_SIZE * 4);
+
+  icons.forEach((icon, itemIndex) => {
+    if (!icon || icon.channels !== 4 || icon.depth !== 8) return;
+    const offsetX = (itemIndex * BUILD_ICON_CELL_SIZE) + Math.floor((BUILD_ICON_CELL_SIZE - icon.width) / 2);
+    const offsetY = Math.floor((BUILD_ICON_CELL_SIZE - icon.height) / 2);
+    for (let y = 0; y < icon.height; y += 1) {
+      const sourceStart = y * icon.width * 4;
+      const targetStart = ((offsetY + y) * width + offsetX) * 4;
+      output.set(icon.data.subarray(sourceStart, sourceStart + (icon.width * 4)), targetStart);
+    }
+  });
+
+  const png = encodePng({
+    channels: 4,
+    data: output,
+    depth: 8,
+    height: BUILD_ICON_CELL_SIZE,
+    width,
+  });
+  return new Response(png, {
+    headers: {
+      'Cache-Control': 'public, max-age=31536000, immutable',
+      'Content-Type': 'image/png',
+    },
+  });
 }
 
 export async function handleCommandRegistrationRequest(request, env, dependencies = {}) {
@@ -443,6 +499,9 @@ export async function handleInteractionRequest(request, env, context, dependenci
   const requestUrl = new URL(request.url);
   if (requestUrl.pathname === '/share/loot-log') {
     return handleLootLogShareRequest(request, dependencies);
+  }
+  if (requestUrl.pathname === '/build-items') {
+    return handleBuildItemsImageRequest(request, dependencies);
   }
   if (requestUrl.pathname === '/webapp/member') {
     return handleMemberLookupRequest(request, env, dependencies);

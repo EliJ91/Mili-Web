@@ -4,6 +4,7 @@ const COMPONENT_TYPE_TEXT_DISPLAY = 10;
 const COMPONENT_TYPE_MEDIA_GALLERY = 12;
 const COMPONENT_TYPE_CONTAINER = 17;
 const MAX_GALLERY_ITEMS = 10;
+const BUILD_IMAGE_ENDPOINT = 'https://militant-discord-interactions.ejjernigan.workers.dev/build-items';
 const BUILD_ITEM_NAME_IDS = new Map([
   ['chariot', 'UNIQUE_MOUNT_TOWER_CHARIOT_CRYSTAL'],
   ['crystal tower chariot', 'UNIQUE_MOUNT_TOWER_CHARIOT_CRYSTAL'],
@@ -209,56 +210,56 @@ function normalizedItemName(value) {
   return clean(value).replace(/[^a-z0-9]+/gi, ' ').replace(/\s+/g, ' ').toLowerCase();
 }
 
+function resolvedItemId(item) {
+  const savedItemId = clean(item?.itemId);
+  if (savedItemId) return savedItemId;
+
+  const savedUrl = clean(item?.imageUrl);
+  if (/^https:\/\//i.test(savedUrl)) {
+    try {
+      const url = new URL(savedUrl);
+      const sourceValue = url.hostname === 'images.weserv.nl' ? clean(url.searchParams.get('url')) : savedUrl;
+      const sourceUrl = new URL(/^https?:\/\//i.test(sourceValue) ? sourceValue : `https://${sourceValue}`);
+      const match = decodeURIComponent(sourceUrl.pathname).match(/\/item\/([^/]+?)\.png$/i);
+      if (match) return match[1];
+    } catch {
+      // Fall through to the name lookup.
+    }
+  }
+
+  return BUILD_ITEM_NAME_IDS.get(normalizedItemName(item?.name || item?.lookupName)) || '';
+}
+
 function resolvedItemImageUrl(item) {
   const savedUrl = clean(item?.imageUrl);
   if (/^https:\/\//i.test(savedUrl)) return savedUrl;
 
-  const itemId = clean(item?.itemId)
-    || BUILD_ITEM_NAME_IDS.get(normalizedItemName(item?.name || item?.lookupName));
+  const itemId = resolvedItemId(item);
   if (!itemId) return '';
   const imagePath = `${itemId}.png?count=1&quality=1&size=160`;
   return `https://images.weserv.nl/?url=${encodeURIComponent(`render.albiononline.com/v1/item/${imagePath}`)}`;
 }
 
-function compactItemImageUrl(value) {
-  const imageUrl = clean(value);
-  try {
-    const url = new URL(imageUrl);
-    let sourceUrl = url;
-
-    if (url.hostname === 'images.weserv.nl') {
-      const sourceValue = clean(url.searchParams.get('url'));
-      if (sourceValue) {
-        sourceUrl = new URL(/^https?:\/\//i.test(sourceValue) ? sourceValue : `https://${sourceValue}`);
-      }
-    }
-
-    if (sourceUrl.hostname !== 'render.albiononline.com') return imageUrl;
-    sourceUrl.searchParams.set('size', '60');
-
-    const paddedIconUrl = new URL('https://images.weserv.nl/');
-    paddedIconUrl.searchParams.set('url', sourceUrl.toString().replace(/^https?:\/\//i, ''));
-    paddedIconUrl.searchParams.set('w', '120');
-    paddedIconUrl.searchParams.set('h', '120');
-    paddedIconUrl.searchParams.set('fit', 'contain');
-    paddedIconUrl.searchParams.set('cbg', '00000000');
-    paddedIconUrl.searchParams.set('output', 'png');
-    paddedIconUrl.searchParams.set('we', '');
-    return paddedIconUrl.toString();
-  } catch {
-    return imageUrl;
-  }
+function buildStripImageUrl(items) {
+  const itemIds = (Array.isArray(items) ? items : []).map(resolvedItemId).filter(Boolean);
+  if (itemIds.length === 0) return '';
+  const url = new URL(BUILD_IMAGE_ENDPOINT);
+  url.searchParams.set('items', itemIds.join(','));
+  return url.toString();
 }
 
 function slotGallery(items) {
-  const galleryItems = (Array.isArray(items) ? items : [])
+  const visibleItems = (Array.isArray(items) ? items : [])
     .filter((item) => resolvedItemImageUrl(item))
-    .slice(0, MAX_GALLERY_ITEMS)
-    .map((item) => ({
-      description: itemDescription(item),
-      media: { url: compactItemImageUrl(resolvedItemImageUrl(item)) },
-    }));
-  return galleryItems.length ? { items: galleryItems, type: COMPONENT_TYPE_MEDIA_GALLERY } : null;
+    .slice(0, MAX_GALLERY_ITEMS);
+  const imageUrl = buildStripImageUrl(visibleItems);
+  return imageUrl ? {
+    items: [{
+      description: visibleItems.map(itemDescription).join(' | ').slice(0, 1024),
+      media: { url: imageUrl },
+    }],
+    type: COMPONENT_TYPE_MEDIA_GALLERY,
+  } : null;
 }
 
 function slotCaption(items) {

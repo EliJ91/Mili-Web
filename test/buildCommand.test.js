@@ -150,14 +150,11 @@ describe('/build helpers', () => {
     assert.match(payload.components[0].components[0].content, /Weapon:\*\* Choose/);
     assert.match(payload.components[0].components[0].content, /Role:\*\* Engage/);
     assert.equal(payload.components[0].components[1].type, 12);
-    assert.equal(payload.components[0].components[1].items.length, 5);
-    assert.match(payload.components[0].components[1].items[0].media.url, /T8_MAIN_CURSEDSTAFF_UNDEAD/);
-    const paddedUrl = new URL(payload.components[0].components[1].items[0].media.url);
-    const sourceUrl = new URL(`https://${paddedUrl.searchParams.get('url')}`);
-    assert.equal(paddedUrl.searchParams.get('w'), '120');
-    assert.equal(paddedUrl.searchParams.get('h'), '120');
-    assert.equal(paddedUrl.searchParams.has('we'), true);
-    assert.equal(sourceUrl.searchParams.get('size'), '60');
+    assert.equal(payload.components[0].components[1].items.length, 1);
+    const stripUrl = new URL(payload.components[0].components[1].items[0].media.url);
+    assert.equal(stripUrl.pathname, '/build-items');
+    assert.match(stripUrl.searchParams.get('items'), /T8_MAIN_CURSEDSTAFF_UNDEAD/);
+    assert.match(stripUrl.searchParams.get('items'), /T8_OFF_SHIELD_HELL/);
     assert.match(payload.components[0].components[2].content, /Lifecurse \(Q1\/W3\/P2\)/);
     assert.match(payload.components[0].components[2].content, /Aegis \(Q1\/W3\/P2\)/);
     assert.match(payload.components[0].components[2].content, /Assassin Hood \(Q1\/W3\/P2\)/);
@@ -165,7 +162,7 @@ describe('/build helpers', () => {
     assert.match(payload.components[0].components.at(-1).content, /Hold defensives for the second engage/);
   });
 
-  it('pads cached proxy images so Discord renders the visible icon at half size', () => {
+  it('uses one compact image strip instead of Discord gallery cells', () => {
     const payload = createBuildResponsePayload({
       role: 'DPS',
       slots: {
@@ -177,14 +174,10 @@ describe('/build helpers', () => {
       },
     }, '14');
 
-    const paddedUrl = new URL(payload.components[0].components[1].items[0].media.url);
-    const sourceUrl = new URL(`https://${paddedUrl.searchParams.get('url')}`);
-    assert.equal(paddedUrl.hostname, 'images.weserv.nl');
-    assert.equal(paddedUrl.searchParams.get('w'), '120');
-    assert.equal(paddedUrl.searchParams.get('h'), '120');
-    assert.equal(paddedUrl.searchParams.has('we'), true);
-    assert.equal(sourceUrl.hostname, 'render.albiononline.com');
-    assert.equal(sourceUrl.searchParams.get('size'), '60');
+    const stripUrl = new URL(payload.components[0].components[1].items[0].media.url);
+    assert.equal(stripUrl.hostname, 'militant-discord-interactions.ejjernigan.workers.dev');
+    assert.equal(stripUrl.pathname, '/build-items');
+    assert.equal(stripUrl.searchParams.get('items'), 'T8_MAIN_SPEAR_LANCE_AVALON');
   });
 
   it('resolves the crystal tower chariot image from its saved item name', () => {

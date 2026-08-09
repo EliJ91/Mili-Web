@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it, mock } from 'node:test';
+import { decode as decodePng, encode as encodePng } from 'fast-png';
 import {
   InteractionResponseType,
   InteractionType,
@@ -8,6 +9,7 @@ import {
 import {
   handleInteractionRequest,
   handleCommandRegistrationRequest,
+  handleBuildItemsImageRequest,
   handleLootLogShareRequest,
   handleMemberLookupRequest,
   handleUploadQueue,
@@ -37,6 +39,27 @@ function interaction(overrides = {}) {
 }
 
 describe('Cloudflare Discord interaction worker', () => {
+  it('renders build item ids as one compact horizontal PNG strip', async () => {
+    const sourcePixels = new Uint8Array(56 * 56 * 4).fill(255);
+    const sourcePng = encodePng({ channels: 4, data: sourcePixels, depth: 8, height: 56, width: 56 });
+    const fetchImpl = mock.fn(async () => new Response(sourcePng, {
+      headers: { 'Content-Type': 'image/png' },
+      status: 200,
+    }));
+
+    const response = await handleBuildItemsImageRequest(
+      new Request('https://worker.test/build-items?items=T8_MAIN_CURSEDSTAFF_UNDEAD,T8_OFF_SHIELD_HELL'),
+      { fetchImpl },
+    );
+    const image = decodePng(new Uint8Array(await response.arrayBuffer()));
+
+    assert.equal(response.status, 200);
+    assert.equal(response.headers.get('content-type'), 'image/png');
+    assert.equal(image.width, 128);
+    assert.equal(image.height, 64);
+    assert.equal(fetchImpl.mock.callCount(), 2);
+  });
+
   it('renders a loot log title in the shared link preview', async () => {
     const response = await handleLootLogShareRequest(
       new Request('https://worker.test/share/loot-log?bundle=bundle-1&s=kept'),
