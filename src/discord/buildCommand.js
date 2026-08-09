@@ -204,10 +204,20 @@ function compactItemImageUrl(value) {
   try {
     const url = new URL(imageUrl);
     if (url.hostname === 'render.albiononline.com') {
-      url.searchParams.set('size', '160');
+      url.searchParams.set('size', '120');
       const proxyUrl = new URL('https://images.weserv.nl/');
       proxyUrl.searchParams.set('url', url.toString().replace(/^https?:\/\//i, ''));
       return proxyUrl.toString();
+    }
+    if (url.hostname === 'images.weserv.nl') {
+      const sourceValue = clean(url.searchParams.get('url'));
+      if (sourceValue) {
+        const sourceUrl = new URL(/^https?:\/\//i.test(sourceValue) ? sourceValue : `https://${sourceValue}`);
+        if (sourceUrl.hostname === 'render.albiononline.com') {
+          sourceUrl.searchParams.set('size', '120');
+          url.searchParams.set('url', sourceUrl.toString().replace(/^https?:\/\//i, ''));
+        }
+      }
     }
     return url.toString();
   } catch {

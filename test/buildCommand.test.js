@@ -152,7 +152,7 @@ describe('/build helpers', () => {
     assert.equal(payload.components[0].components[1].type, 12);
     assert.equal(payload.components[0].components[1].items.length, 5);
     assert.match(payload.components[0].components[1].items[0].media.url, /T8_MAIN_CURSEDSTAFF_UNDEAD/);
-    assert.match(new URL(payload.components[0].components[1].items[0].media.url).searchParams.get('url'), /size=160/);
+    assert.match(new URL(payload.components[0].components[1].items[0].media.url).searchParams.get('url'), /size=120/);
     assert.match(payload.components[0].components[2].content, /Lifecurse \(Q1\/W3\/P2\)/);
     assert.match(payload.components[0].components[2].content, /Aegis \(Q1\/W3\/P2\)/);
     assert.match(payload.components[0].components[2].content, /Assassin Hood \(Q1\/W3\/P2\)/);
@@ -174,6 +174,6 @@ describe('/build helpers', () => {
 
     const imageUrl = new URL(payload.components[0].components[1].items[0].media.url);
     assert.equal(imageUrl.hostname, 'images.weserv.nl');
-    assert.match(imageUrl.searchParams.get('url'), /size=160/);
+    assert.match(imageUrl.searchParams.get('url'), /size=120/);
   });
 });
