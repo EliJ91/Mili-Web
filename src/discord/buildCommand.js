@@ -203,23 +203,34 @@ function compactItemImageUrl(value) {
   const imageUrl = clean(value);
   try {
     const url = new URL(imageUrl);
-    if (url.hostname === 'render.albiononline.com') {
-      url.searchParams.set('size', '60');
-      const proxyUrl = new URL('https://images.weserv.nl/');
-      proxyUrl.searchParams.set('url', url.toString().replace(/^https?:\/\//i, ''));
-      return proxyUrl.toString();
-    }
+    let sourceUrl = url;
+
     if (url.hostname === 'images.weserv.nl') {
       const sourceValue = clean(url.searchParams.get('url'));
       if (sourceValue) {
-        const sourceUrl = new URL(/^https?:\/\//i.test(sourceValue) ? sourceValue : `https://${sourceValue}`);
-        if (sourceUrl.hostname === 'render.albiononline.com') {
-          sourceUrl.searchParams.set('size', '60');
-          url.searchParams.set('url', sourceUrl.toString().replace(/^https?:\/\//i, ''));
-        }
+        sourceUrl = new URL(/^https?:\/\//i.test(sourceValue) ? sourceValue : `https://${sourceValue}`);
       }
     }
-    return url.toString();
+
+    if (sourceUrl.hostname !== 'render.albiononline.com') return imageUrl;
+    sourceUrl.searchParams.set('size', '160');
+
+    const compactIconUrl = new URL('https://images.weserv.nl/');
+    compactIconUrl.searchParams.set('url', sourceUrl.toString().replace(/^https?:\/\//i, ''));
+    compactIconUrl.searchParams.set('w', '60');
+    compactIconUrl.searchParams.set('h', '120');
+    compactIconUrl.searchParams.set('fit', 'contain');
+    compactIconUrl.searchParams.set('cbg', '00000000');
+    compactIconUrl.searchParams.set('output', 'png');
+
+    const paddedIconUrl = new URL('https://images.weserv.nl/');
+    paddedIconUrl.searchParams.set('url', compactIconUrl.toString().replace(/^https?:\/\//i, ''));
+    paddedIconUrl.searchParams.set('w', '120');
+    paddedIconUrl.searchParams.set('h', '120');
+    paddedIconUrl.searchParams.set('fit', 'contain');
+    paddedIconUrl.searchParams.set('cbg', '00000000');
+    paddedIconUrl.searchParams.set('output', 'png');
+    return paddedIconUrl.toString();
   } catch {
     return imageUrl;
   }
