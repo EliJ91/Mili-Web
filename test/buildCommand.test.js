@@ -94,6 +94,30 @@ describe('/build helpers', () => {
     assert.equal(findSignupRosterNumber(messages, interaction), '32');
   });
 
+  it('tracks the party number separately when one signup message contains multiple parties', () => {
+    const r4mossInteraction = {
+      member: {
+        nick: 'r4moss',
+        user: { id: '999999999999999999', username: 'r4moss-account' },
+      },
+    };
+    const roleAssignments = Array.from({ length: 9 }, (_, index) => (
+      `**Build ${31 + index}**,\nâ€” <@${index === 8 ? '999999999999999999' : `11111111111111111${index}`}>`
+    ));
+    const messages = [{
+      embeds: [{
+        fields: [{ name: 'Roles 2', value: '**Build 11**,\nâ€” <@222222222222222222>' }],
+        title: 'CTA Signup â€” Party 1',
+      }, {
+        fields: [{ name: 'Roles 2', value: roleAssignments.join('\n\n') }],
+        title: 'CTA Signup â€” Party 2',
+      }],
+      timestamp: '2026-08-08T19:11:00Z',
+    }];
+
+    assert.equal(findSignupRosterNumber(messages, r4mossInteraction), '39');
+  });
+
   it('uses the newest signup sheet when a member appears more than once', () => {
     const messages = [
       { content: '4. <@264193431830528006>', timestamp: '2026-08-08T11:00:00Z' },
@@ -101,6 +125,19 @@ describe('/build helpers', () => {
     ];
 
     assert.equal(findSignupRosterNumber(messages, interaction), '9');
+  });
+
+  it('uses the latest edit time when choosing the current signup sheet', () => {
+    const messages = [
+      { content: '19. <@264193431830528006>', timestamp: '2026-08-08T12:00:00Z' },
+      {
+        content: '39. <@264193431830528006>',
+        edited_timestamp: '2026-08-08T13:00:00Z',
+        timestamp: '2026-08-08T11:00:00Z',
+      },
+    ];
+
+    assert.equal(findSignupRosterNumber(messages, interaction), '39');
   });
 
   it('matches the stored build by its roster number', () => {

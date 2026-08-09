@@ -68,8 +68,10 @@ function objectTextBlocks(value, blocks = []) {
 }
 
 function messageTimestamp(message) {
-  const timestamp = new Date(message?.timestamp || message?.edited_timestamp || 0).getTime();
-  return Number.isFinite(timestamp) ? timestamp : 0;
+  const timestamps = [message?.timestamp, message?.edited_timestamp]
+    .map((value) => new Date(value || 0).getTime())
+    .filter(Number.isFinite);
+  return timestamps.length > 0 ? Math.max(...timestamps) : 0;
 }
 
 function identityTokens(interaction) {
@@ -116,31 +118,38 @@ function orderedSignupRosterNumber(message, userId, names) {
   const blocks = [...objectTextBlocks(message?.embeds), ...objectTextBlocks(message?.components)];
   if (blocks.length === 0) return '';
 
-  const normalized = normalizeKeycapDigits(blocks.join('\n'));
-  const partyMatch = normalized.match(/\bParty\s+(\d{1,2})\b/i);
-  const partyNumber = Math.max(1, Number(partyMatch?.[1]) || 1);
-  const lines = normalized.split(/\r?\n/).map(clean).filter(Boolean);
+  let partyNumber = 1;
   let roleGroup = 0;
   let assignmentIndex = 0;
 
-  for (const line of lines) {
-    if (/\bLoot\s+Loggers?\b/i.test(line)) {
-      roleGroup = 0;
-      assignmentIndex = 0;
-      continue;
-    }
+  for (const block of blocks) {
+    const lines = normalizeKeycapDigits(block).split(/\r?\n/).map(clean).filter(Boolean);
+    for (const line of lines) {
+      const partyMatch = line.match(/\bParty\s+(\d{1,2})\b/i);
+      if (partyMatch) {
+        partyNumber = Math.max(1, Number(partyMatch[1]) || 1);
+        roleGroup = 0;
+        assignmentIndex = 0;
+      }
 
-    const groupMatch = line.match(/^Roles?\s+(\d{1,2})\b/i);
-    if (groupMatch) {
-      roleGroup = Number(groupMatch[1]);
-      assignmentIndex = 0;
-      continue;
-    }
-    if (!roleGroup || !/[—–-]\s*(?:<@!?\d+>|@|Empty\b)/i.test(line)) continue;
+      if (/\bLoot\s+Loggers?\b/i.test(line)) {
+        roleGroup = 0;
+        assignmentIndex = 0;
+        continue;
+      }
 
-    assignmentIndex += 1;
-    if (!lineContainsIdentity(line, userId, names)) continue;
-    return String(((partyNumber - 1) * 20) + ((roleGroup - 1) * 10) + assignmentIndex);
+      const groupMatch = line.match(/^Roles?\s+(\d{1,2})\b/i);
+      if (groupMatch) {
+        roleGroup = Number(groupMatch[1]);
+        assignmentIndex = 0;
+        continue;
+      }
+      if (!roleGroup || !/[—–-]\s*(?:<@!?\d+>|@|Empty\b)/i.test(line)) continue;
+
+      assignmentIndex += 1;
+      if (!lineContainsIdentity(line, userId, names)) continue;
+      return String(((partyNumber - 1) * 20) + ((roleGroup - 1) * 10) + assignmentIndex);
+    }
   }
 
   return '';
