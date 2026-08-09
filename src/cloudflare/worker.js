@@ -210,7 +210,8 @@ function validBuildItemIds(value) {
 }
 
 async function fetchBuildIcon(itemId, fetchImpl) {
-  const imageUrl = `https://render.albiononline.com/v1/item/${encodeURIComponent(itemId)}.png?count=1&quality=1&size=${BUILD_ICON_SIZE}`;
+  const imagePath = `render.albiononline.com/v1/item/${encodeURIComponent(itemId)}.png?count=1&quality=1&size=160`;
+  const imageUrl = `https://images.weserv.nl/?url=${encodeURIComponent(imagePath)}`;
   const response = await fetchImpl(imageUrl);
   if (!response.ok) return null;
   return decodePng(new Uint8Array(await response.arrayBuffer()));
@@ -228,12 +229,19 @@ export async function handleBuildItemsImageRequest(request, dependencies = {}) {
 
   icons.forEach((icon, itemIndex) => {
     if (!icon || icon.channels !== 4 || icon.depth !== 8) return;
-    const offsetX = (itemIndex * BUILD_ICON_CELL_SIZE) + Math.floor((BUILD_ICON_CELL_SIZE - icon.width) / 2);
-    const offsetY = Math.floor((BUILD_ICON_CELL_SIZE - icon.height) / 2);
-    for (let y = 0; y < icon.height; y += 1) {
-      const sourceStart = y * icon.width * 4;
-      const targetStart = ((offsetY + y) * width + offsetX) * 4;
-      output.set(icon.data.subarray(sourceStart, sourceStart + (icon.width * 4)), targetStart);
+    const offsetX = (itemIndex * BUILD_ICON_CELL_SIZE) + Math.floor((BUILD_ICON_CELL_SIZE - BUILD_ICON_SIZE) / 2);
+    const offsetY = Math.floor((BUILD_ICON_CELL_SIZE - BUILD_ICON_SIZE) / 2);
+    for (let y = 0; y < BUILD_ICON_SIZE; y += 1) {
+      const sourceY = Math.min(icon.height - 1, Math.floor((y / BUILD_ICON_SIZE) * icon.height));
+      for (let x = 0; x < BUILD_ICON_SIZE; x += 1) {
+        const sourceX = Math.min(icon.width - 1, Math.floor((x / BUILD_ICON_SIZE) * icon.width));
+        const sourceIndex = ((sourceY * icon.width) + sourceX) * 4;
+        const targetIndex = (((offsetY + y) * width) + offsetX + x) * 4;
+        output[targetIndex] = icon.data[sourceIndex];
+        output[targetIndex + 1] = icon.data[sourceIndex + 1];
+        output[targetIndex + 2] = icon.data[sourceIndex + 2];
+        output[targetIndex + 3] = icon.data[sourceIndex + 3];
+      }
     }
   });
 
