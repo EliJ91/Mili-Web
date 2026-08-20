@@ -263,7 +263,7 @@ describe('Cloudflare Discord interaction worker', () => {
     const requestOptions = rest.patch.mock.calls[0].arguments[1];
     const result = requestOptions.body;
     assert.match(result.components[0].components[0].content, /Build #2/);
-    assert.match(result.components[0].components[0].content, /Role:\*\* Engage/);
+    assert.match(result.components[0].components[0].content, /Main Hand: Lifecurse/);
     assert.equal(result.components[0].components[1].items[0].media.url, 'attachment://build-items-1.png');
     assert.equal(requestOptions.files[0].name, 'build-items-1.png');
     assert.equal(requestOptions.files[0].contentType, 'image/png');

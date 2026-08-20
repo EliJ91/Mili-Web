@@ -167,7 +167,7 @@ describe('/build helpers', () => {
     assert.equal(url.searchParams.get('order'), 'updated_at.desc');
   });
 
-  it('formats the matched build as a Discord role card with item image rows', () => {
+  it('formats the matched build as a compact Discord build summary with item images below', () => {
     const payload = createBuildResponsePayload({
       number: '2',
       notes: 'Hold defensives for the second engage.',
@@ -184,18 +184,18 @@ describe('/build helpers', () => {
     }, '2');
 
     assert.match(payload.components[0].components[0].content, /Build #2/);
-    assert.match(payload.components[0].components[0].content, /Weapon:\*\* Choose/);
-    assert.match(payload.components[0].components[0].content, /Role:\*\* Engage/);
+    assert.match(payload.components[0].components[0].content, /Main Hand: Lifecurse Q1\/W3\/P2/);
+    assert.match(payload.components[0].components[0].content, /Off Hand: Aegis Q1\/W3\/P2/);
+    assert.match(payload.components[0].components[0].content, /Helmet: Assassin Hood Q1\/W3\/P2/);
+    assert.doesNotMatch(payload.components[0].components[0].content, /Weapon:/);
+    assert.doesNotMatch(payload.components[0].components[0].content, /Role:/);
+    assert.doesNotMatch(payload.components[0].components[0].content, /Hold defensives/);
     assert.equal(payload.components[0].components[1].type, 12);
     assert.equal(payload.components[0].components[1].items.length, 1);
     const stripUrl = new URL(payload.components[0].components[1].items[0].media.url);
     assert.equal(stripUrl.pathname, '/build-items');
     assert.match(stripUrl.searchParams.get('items'), /T8_MAIN_CURSEDSTAFF_UNDEAD/);
     assert.match(stripUrl.searchParams.get('items'), /T8_OFF_SHIELD_HELL/);
-    assert.match(payload.components[0].components[2].content, /Lifecurse \| Aegis \(Q1\/W3\/P2\)/);
-    assert.match(payload.components[0].components[2].content, /Assassin Hood \(Q1\/W3\/P2\)/);
-    assert.match(payload.components[0].components.at(-1).content, /Notes/);
-    assert.match(payload.components[0].components.at(-1).content, /Hold defensives for the second engage/);
   });
 
   it('prints shared cell notes once for multiple variants in the same slot', () => {
@@ -210,8 +210,8 @@ describe('/build helpers', () => {
       },
     }, '6');
 
-    const caption = payload.components[0].components[2].content;
-    assert.match(caption, /Boots of Valor \| Graveguard Boots \| Royal Shoes F3\/P2 \/ F3\/P2 \/ Can Be Flexible/);
+    const caption = payload.components[0].components[0].content;
+    assert.match(caption, /Boots: Boots of Valor \/ Graveguard Boots \/ Royal Shoes\nF3\/P2 \/ F3\/P2 \/ Can Be Flexible/);
     assert.equal((caption.match(/Can Be Flexible/g) || []).length, 1);
   });
 
@@ -243,5 +243,19 @@ describe('/build helpers', () => {
 
     const imageUrl = payload.components[0].components[1].items[0].media.url;
     assert.match(imageUrl, /UNIQUE_MOUNT_TOWER_CHARIOT_CRYSTAL/);
+  });
+
+  it('shows food and potion quantities in the build summary', () => {
+    const payload = createBuildResponsePayload({
+      role: 'Defensive',
+      slots: {
+        foodPots: [
+          { annotation: '', imageUrl: 'https://render.albiononline.com/v1/item/T8_MEAL_OMELETTE_AVALON@1.png?size=160', itemId: 'T8_MEAL_OMELETTE_AVALON@1', name: 'Ava Omelette', quantity: 2 },
+          { annotation: '', imageUrl: 'https://render.albiononline.com/v1/item/T8_POTION_REVIVE@1.png?size=160', itemId: 'T8_POTION_REVIVE@1', name: 'Gigantify', quantity: 10 },
+        ],
+      },
+    }, '6');
+
+    assert.match(payload.components[0].components[0].content, /Food\/Pots: Ava Omelette x2 \/ Gigantify x10/);
   });
 });

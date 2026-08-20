@@ -211,12 +211,21 @@ export async function loadLatestZvZBuildLayout(runtimeEnv = process.env, fetchIm
 
 function itemDescription(item) {
   const name = clean(item?.name || item?.lookupName || item?.itemId) || 'Build item';
-  const annotation = clean(item?.annotation);
+  const annotation = annotationText(item?.annotation);
   return `${name}${annotation ? ` ${annotation}` : ''}`.slice(0, 1024);
 }
 
 function itemName(item) {
   return clean(item?.name || item?.lookupName || item?.itemId) || 'Build item';
+}
+
+function annotationText(value) {
+  return clean(value).replace(/^\((.*)\)$/, '$1').trim();
+}
+
+function itemLabel(item) {
+  const quantity = Number(item?.quantity) || 1;
+  return `${itemName(item)}${quantity > 1 ? ` x${quantity}` : ''}`;
 }
 
 function uniqueCleanValues(values) {
@@ -279,54 +288,53 @@ function slotGallery(items) {
   } : null;
 }
 
-function rowDescription(items) {
-  const visibleItems = (Array.isArray(items) ? items : []).filter((item) => resolvedItemImageUrl(item));
-  if (visibleItems.length === 0) return '';
-
-  const names = visibleItems.map(itemName);
-  const annotations = uniqueCleanValues(visibleItems.map((item) => item?.annotation));
-  if (annotations.length === 0) return names.join(' | ');
-
-  if (
-    visibleItems.length > 1
-    && annotations.length === 1
-    && visibleItems.every((item) => clean(item?.annotation) === annotations[0])
-  ) {
-    return `${names.join(' | ')} ${annotations[0]}`;
-  }
-
-  return visibleItems.map(itemDescription).join(' | ');
-}
-
-function slotCaption(rows) {
-  const captions = (Array.isArray(rows) ? rows : [])
-    .map(rowDescription)
-    .filter(Boolean)
-    .map((description) => `**${description.slice(0, 1000)}**`);
-  return captions.length ? { content: captions.join('  |  '), type: COMPONENT_TYPE_TEXT_DISPLAY } : null;
-}
-
 function compactGalleryComponents(rows) {
   const visibleItems = (Array.isArray(rows) ? rows.flat() : [])
     .filter((item) => resolvedItemImageUrl(item));
   const components = [];
   for (let index = 0; index < visibleItems.length; index += MAX_GALLERY_ITEMS) {
     const chunk = visibleItems.slice(index, index + MAX_GALLERY_ITEMS);
-    const chunkRows = (Array.isArray(rows) ? rows : [])
-      .map((row) => (Array.isArray(row) ? row : []).filter((item) => chunk.includes(item)))
-      .filter((row) => row.length > 0);
     const gallery = slotGallery(chunk);
-    const caption = slotCaption(chunkRows);
-    if (gallery && caption) components.push(gallery, caption);
+    if (gallery) components.push(gallery);
   }
   return components;
 }
 
-function weaponName(build) {
-  const names = [...(build?.slots?.mainHand || []), ...(build?.slots?.offHand || [])]
-    .map((item) => clean(item?.name || item?.lookupName))
-    .filter(Boolean);
-  return names.length === 1 ? names[0] : names.length > 1 ? 'Choose' : 'Unknown';
+function slotLine(label, items) {
+  const sourceItems = (Array.isArray(items) ? items : []).filter((item) => itemName(item));
+  if (sourceItems.length === 0) return '';
+
+  const labels = sourceItems.map(itemLabel);
+  const annotations = uniqueCleanValues(sourceItems.map((item) => annotationText(item?.annotation)));
+  if (annotations.length === 0) return `${label}: ${labels.join(' / ')}`;
+
+  if (
+    annotations.length === 1
+    && sourceItems.every((item) => annotationText(item?.annotation) === annotations[0])
+  ) {
+    return sourceItems.length === 1
+      ? `${label}: ${labels[0]} ${annotations[0]}`
+      : `${label}: ${labels.join(' / ')}\n${annotations[0]}`;
+  }
+
+  return `${label}: ${sourceItems.map(itemDescription).join(' / ')}`;
+}
+
+function buildSummaryContent(build, rosterNumber) {
+  const slots = build?.slots || {};
+  const lines = [
+    `Build #${clean(rosterNumber)}`,
+    '',
+    slotLine('Main Hand', slots.mainHand),
+    slotLine('Off Hand', slots.offHand),
+    slotLine('Helmet', slots.helm),
+    slotLine('Armor', slots.armor),
+    slotLine('Boots', slots.boots),
+    slotLine('Cape', slots.cape),
+    slotLine('Food/Pots', slots.foodPots),
+  ].filter((line, index) => index < 2 || line);
+
+  return lines.join('\n').slice(0, 4000);
 }
 
 export function createBuildResponsePayload(build, rosterNumber) {
@@ -342,19 +350,14 @@ export function createBuildResponsePayload(build, rosterNumber) {
   const itemRows = compactGalleryComponents(rows);
   if (itemRows.length === 0) return null;
 
-  const notes = clean(build?.notes);
-  const noteComponent = notes
-    ? [{ content: `**Notes**\n${notes}`.slice(0, 4000), type: COMPONENT_TYPE_TEXT_DISPLAY }]
-    : [];
-
   return {
     allowed_mentions: { parse: [] },
     components: [{
       accent_color: 0x42df75,
       components: [{
-        content: `### Build #${clean(rosterNumber)}\n**Weapon:** ${weaponName(build)}  \n**Role:** ${clean(build?.role) || 'Unknown'}`,
+        content: buildSummaryContent(build, rosterNumber),
         type: COMPONENT_TYPE_TEXT_DISPLAY,
-      }, ...itemRows, ...noteComponent],
+      }, ...itemRows],
       type: COMPONENT_TYPE_CONTAINER,
     }],
   };
