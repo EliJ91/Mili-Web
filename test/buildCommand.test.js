@@ -192,11 +192,27 @@ describe('/build helpers', () => {
     assert.equal(stripUrl.pathname, '/build-items');
     assert.match(stripUrl.searchParams.get('items'), /T8_MAIN_CURSEDSTAFF_UNDEAD/);
     assert.match(stripUrl.searchParams.get('items'), /T8_OFF_SHIELD_HELL/);
-    assert.match(payload.components[0].components[2].content, /Lifecurse \(Q1\/W3\/P2\)/);
-    assert.match(payload.components[0].components[2].content, /Aegis \(Q1\/W3\/P2\)/);
+    assert.match(payload.components[0].components[2].content, /Lifecurse \| Aegis \(Q1\/W3\/P2\)/);
     assert.match(payload.components[0].components[2].content, /Assassin Hood \(Q1\/W3\/P2\)/);
     assert.match(payload.components[0].components.at(-1).content, /Notes/);
     assert.match(payload.components[0].components.at(-1).content, /Hold defensives for the second engage/);
+  });
+
+  it('prints shared cell notes once for multiple variants in the same slot', () => {
+    const payload = createBuildResponsePayload({
+      role: 'Defensive',
+      slots: {
+        boots: [
+          { annotation: 'F3/P2 / F3/P2 / Can Be Flexible', imageUrl: 'https://render.albiononline.com/v1/item/T8_SHOES_CLOTH_ROYAL.png?size=160', itemId: 'T8_SHOES_CLOTH_ROYAL', name: 'Boots of Valor' },
+          { annotation: 'F3/P2 / F3/P2 / Can Be Flexible', imageUrl: 'https://render.albiononline.com/v1/item/T8_SHOES_PLATE_SET1.png?size=160', itemId: 'T8_SHOES_PLATE_SET1', name: 'Graveguard Boots' },
+          { annotation: 'F3/P2 / F3/P2 / Can Be Flexible', imageUrl: 'https://render.albiononline.com/v1/item/T8_SHOES_LEATHER_ROYAL.png?size=160', itemId: 'T8_SHOES_LEATHER_ROYAL', name: 'Royal Shoes' },
+        ],
+      },
+    }, '6');
+
+    const caption = payload.components[0].components[2].content;
+    assert.match(caption, /Boots of Valor \| Graveguard Boots \| Royal Shoes F3\/P2 \/ F3\/P2 \/ Can Be Flexible/);
+    assert.equal((caption.match(/Can Be Flexible/g) || []).length, 1);
   });
 
   it('uses one compact image strip instead of Discord gallery cells', () => {

@@ -215,6 +215,14 @@ function itemDescription(item) {
   return `${name}${annotation ? ` ${annotation}` : ''}`.slice(0, 1024);
 }
 
+function itemName(item) {
+  return clean(item?.name || item?.lookupName || item?.itemId) || 'Build item';
+}
+
+function uniqueCleanValues(values) {
+  return [...new Set((Array.isArray(values) ? values : []).map(clean).filter(Boolean))];
+}
+
 function normalizedItemName(value) {
   return clean(value).replace(/[^a-z0-9]+/gi, ' ').replace(/\s+/g, ' ').toLowerCase();
 }
@@ -264,29 +272,51 @@ function slotGallery(items) {
   const imageUrl = buildStripImageUrl(visibleItems);
   return imageUrl ? {
     items: [{
-      description: visibleItems.map(itemDescription).join(' | ').slice(0, 1024),
+      description: visibleItems.map(itemName).join(' | ').slice(0, 1024),
       media: { url: imageUrl },
     }],
     type: COMPONENT_TYPE_MEDIA_GALLERY,
   } : null;
 }
 
-function slotCaption(items) {
-  const captions = (Array.isArray(items) ? items : [])
-    .filter((item) => resolvedItemImageUrl(item))
-    .slice(0, MAX_GALLERY_ITEMS)
-    .map((item) => `**${itemDescription(item)}**`);
+function rowDescription(items) {
+  const visibleItems = (Array.isArray(items) ? items : []).filter((item) => resolvedItemImageUrl(item));
+  if (visibleItems.length === 0) return '';
+
+  const names = visibleItems.map(itemName);
+  const annotations = uniqueCleanValues(visibleItems.map((item) => item?.annotation));
+  if (annotations.length === 0) return names.join(' | ');
+
+  if (
+    visibleItems.length > 1
+    && annotations.length === 1
+    && visibleItems.every((item) => clean(item?.annotation) === annotations[0])
+  ) {
+    return `${names.join(' | ')} ${annotations[0]}`;
+  }
+
+  return visibleItems.map(itemDescription).join(' | ');
+}
+
+function slotCaption(rows) {
+  const captions = (Array.isArray(rows) ? rows : [])
+    .map(rowDescription)
+    .filter(Boolean)
+    .map((description) => `**${description.slice(0, 1000)}**`);
   return captions.length ? { content: captions.join('  |  '), type: COMPONENT_TYPE_TEXT_DISPLAY } : null;
 }
 
-function compactGalleryComponents(items) {
-  const visibleItems = (Array.isArray(items) ? items : [])
+function compactGalleryComponents(rows) {
+  const visibleItems = (Array.isArray(rows) ? rows.flat() : [])
     .filter((item) => resolvedItemImageUrl(item));
   const components = [];
   for (let index = 0; index < visibleItems.length; index += MAX_GALLERY_ITEMS) {
     const chunk = visibleItems.slice(index, index + MAX_GALLERY_ITEMS);
+    const chunkRows = (Array.isArray(rows) ? rows : [])
+      .map((row) => (Array.isArray(row) ? row : []).filter((item) => chunk.includes(item)))
+      .filter((row) => row.length > 0);
     const gallery = slotGallery(chunk);
-    const caption = slotCaption(chunk);
+    const caption = slotCaption(chunkRows);
     if (gallery && caption) components.push(gallery, caption);
   }
   return components;
@@ -309,7 +339,7 @@ export function createBuildResponsePayload(build, rosterNumber) {
     slots.cape,
     slots.foodPots,
   ];
-  const itemRows = compactGalleryComponents(rows.flat());
+  const itemRows = compactGalleryComponents(rows);
   if (itemRows.length === 0) return null;
 
   const notes = clean(build?.notes);
