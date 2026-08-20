@@ -250,12 +250,12 @@ describe('/build helpers', () => {
       role: 'Defensive',
       slots: {
         foodPots: [
-          { annotation: '', imageUrl: 'https://render.albiononline.com/v1/item/T8_MEAL_OMELETTE_AVALON@1.png?size=160', itemId: 'T8_MEAL_OMELETTE_AVALON@1', name: 'Ava Omelette', quantity: 2 },
-          { annotation: '', imageUrl: 'https://render.albiononline.com/v1/item/T8_POTION_REVIVE@1.png?size=160', itemId: 'T8_POTION_REVIVE@1', name: 'Gigantify', quantity: 10 },
+          { annotation: '', imageUrl: 'https://render.albiononline.com/v1/item/T8_MEAL_OMELETTE_AVALON@1.png?size=160', itemId: 'T8_MEAL_OMELETTE_AVALON@1', lookupName: 'Avalonian Pork Omelette', name: 'Ava Omelette', quantity: 2 },
+          { annotation: '', imageUrl: 'https://render.albiononline.com/v1/item/T8_POTION_REVIVE@1.png?size=160', itemId: 'T8_POTION_REVIVE@1', lookupName: 'Major Gigantify Potion', name: 'Gigantify', quantity: 10 },
         ],
       },
     }, '6');
 
-    assert.match(payload.components[0].components[0].content, /Food\/Pots: Ava Omelette x2 \/ Gigantify x10/);
+    assert.match(payload.components[0].components[0].content, /Food\/Pots: Avalonian Pork Omelette x2 \/ Major Gigantify Potion x10/);
   });
 });

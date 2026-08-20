@@ -210,13 +210,13 @@ export async function loadLatestZvZBuildLayout(runtimeEnv = process.env, fetchIm
 }
 
 function itemDescription(item) {
-  const name = clean(item?.name || item?.lookupName || item?.itemId) || 'Build item';
+  const name = clean(item?.lookupName || item?.name || item?.itemId) || 'Build item';
   const annotation = annotationText(item?.annotation);
   return `${name}${annotation ? ` ${annotation}` : ''}`.slice(0, 1024);
 }
 
 function itemName(item) {
-  return clean(item?.name || item?.lookupName || item?.itemId) || 'Build item';
+  return clean(item?.lookupName || item?.name || item?.itemId) || 'Build item';
 }
 
 function annotationText(value) {
@@ -253,7 +253,7 @@ function resolvedItemId(item) {
     }
   }
 
-  return BUILD_ITEM_NAME_IDS.get(normalizedItemName(item?.name || item?.lookupName)) || '';
+  return BUILD_ITEM_NAME_IDS.get(normalizedItemName(item?.lookupName || item?.name)) || '';
 }
 
 function resolvedItemImageUrl(item) {
