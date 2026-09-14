@@ -1,5 +1,7 @@
 import { ApplicationCommandOptionType, ApplicationCommandType } from 'discord-api-types/v10';
 
+export const BUILD_COMMAND_ENABLED = false;
+
 export function createApplicationCommands() {
   return [{
     description: 'Upload the CSV loot logs attached to this thread',
@@ -17,10 +19,11 @@ export function createApplicationCommands() {
     }],
     type: ApplicationCommandType.ChatInput,
   }, {
-    description: 'Show your assigned build for this signup thread',
+    description: BUILD_COMMAND_ENABLED
+      ? 'Show your assigned build for this signup thread'
+      : 'Build lookup is temporarily disabled',
     dm_permission: false,
     name: 'build',
     type: ApplicationCommandType.ChatInput,
   }];
 }
-

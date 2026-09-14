@@ -14,4 +14,4 @@ await rest.put(Routes.applicationGuildCommands(applicationId, guildId), {
   body: createApplicationCommands(),
 });
 
-console.log('Registered /upload and /build for the Militant Discord server.');
+console.log('Registered /upload and disabled /build for the Militant Discord server.');

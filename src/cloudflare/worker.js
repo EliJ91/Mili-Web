@@ -18,7 +18,7 @@ import {
   findSignupRosterNumber,
   loadLatestZvZBuildLayout,
 } from '../discord/buildCommand.js';
-import { createApplicationCommands } from '../discord/applicationCommands.js';
+import { BUILD_COMMAND_ENABLED, createApplicationCommands } from '../discord/applicationCommands.js';
 
 const DEFAULT_GUILD_ID = '805908199541702666';
 const MAX_MESSAGES_PER_THREAD = 500;
@@ -587,6 +587,12 @@ export async function handleInteractionRequest(request, env, context, dependenci
   }
 
   if (interaction.data.name === 'build') {
+    if (!BUILD_COMMAND_ENABLED) {
+      return jsonResponse({
+        data: componentsTextPayload('The `/build` command is temporarily disabled.'),
+        type: InteractionResponseType.ChannelMessageWithSource,
+      });
+    }
     context.waitUntil(processBuildInteraction(interaction, env, dependencies));
     return jsonResponse({
       data: componentsTextPayload('Finding your build...'),

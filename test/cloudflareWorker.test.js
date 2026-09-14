@@ -204,21 +204,8 @@ describe('Cloudflare Discord interaction worker', () => {
     assert.match(rest.patch.mock.calls[0].arguments[1].body.content, /2 loot log/);
   });
 
-  it('acknowledges build work immediately and returns the signed-up member build', async () => {
+  it('keeps the build command registered but returns a disabled response', async () => {
     const pending = [];
-    const attachedPng = encodePng({
-      channels: 4,
-      data: new Uint8Array(4).fill(255),
-      depth: 8,
-      height: 1,
-      width: 1,
-    });
-    const rest = {
-      get: mock.fn(async () => ({
-        id: 'thread-1', name: 'CTA signup', parent_id: 'build-parent-1', type: 11,
-      })),
-      patch: mock.fn(async () => ({})),
-    };
     const request = new Request('https://worker.test/', {
       body: JSON.stringify(interaction({ data: { name: 'build' } })),
       headers: {
@@ -230,44 +217,14 @@ describe('Cloudflare Discord interaction worker', () => {
     const response = await handleInteractionRequest(request, env, {
       waitUntil(promise) { pending.push(promise); },
     }, {
-      fetchThreadMessagesFn: async () => [{
-        content: '2. <@user-1>',
-        timestamp: '2026-08-08T12:00:00Z',
-      }],
-      loadLatestLayoutFn: async () => ({
-        builds: [{
-          number: '2',
-          role: 'Engage',
-          slots: {
-            armor: [], boots: [], cape: [], foodPots: [], helm: [], offHand: [],
-            mainHand: [{
-              imageUrl: 'https://render.albiononline.com/v1/item/T8_MAIN_CURSEDSTAFF_UNDEAD.png',
-              name: 'Lifecurse',
-            }],
-          },
-        }],
-      }),
-      renderBuildImageFn: async () => new Response(attachedPng, {
-        headers: { 'Content-Type': 'image/png' },
-        status: 200,
-      }),
-      rest,
       verify: async () => true,
     });
-    await Promise.all(pending);
 
     const acknowledgement = await response.json();
     assert.equal(acknowledgement.type, InteractionResponseType.ChannelMessageWithSource);
     assert.equal(acknowledgement.data.flags, MessageFlags.Ephemeral | MessageFlags.IsComponentsV2);
-    assert.match(acknowledgement.data.components[0].content, /Finding your build/);
-    const requestOptions = rest.patch.mock.calls[0].arguments[1];
-    const result = requestOptions.body;
-    assert.match(result.components[0].components[0].content, /Build #2/);
-    assert.match(result.components[0].components[0].content, /Main Hand: Lifecurse/);
-    assert.equal(result.components[0].components[1].items[0].media.url, 'attachment://build-items-1.png');
-    assert.equal(requestOptions.files[0].name, 'build-items-1.png');
-    assert.equal(requestOptions.files[0].contentType, 'image/png');
-    assert.ok(requestOptions.files[0].data.byteLength > 0);
+    assert.match(acknowledgement.data.components[0].content, /temporarily disabled/i);
+    assert.equal(pending.length, 0);
   });
 
   it('returns not signed up when the invoking member is absent from the current thread signup', async () => {
